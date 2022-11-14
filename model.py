@@ -90,4 +90,8 @@ class KPConv(nn.Module):
         pass
 
 
+class DLO_net(nn.Module):
+    def __init__(self):
+        super(DLO_net, self).__init__()
+        pass
 
