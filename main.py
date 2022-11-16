@@ -21,7 +21,7 @@ def train_epoch(model, dataloader, optimizer):
 
         poses = SE3(poses).inv()
         out = model()
-        loss =
+        loss = a
         loss.backward()
 
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
