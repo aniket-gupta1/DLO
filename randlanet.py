@@ -5,17 +5,17 @@ import numpy as np
 def knn_search(support_pts, query_pts, k):
     """KNN search.
     Args:
-        support_pts: points you have, N1*3
-        query_pts: points you want to know the neighbour index, N2*3
+        support_pts: points of shape (B, N, d)
+        query_pts: points of shape (B, M, d)
         k: Number of neighbours in knn search
     Returns:
-        neighbor_idx: neighboring points indexes, N2*k
+        neighbor_idx: neighboring points data (index, distance)
     """
-    nns = o3c.nns.NearestNeighborSearch(o3c.Tensor.from_numpy(support_pts))
-    nns.knn_index()
-    idx, dist = nns.knn_search(o3c.Tensor.from_numpy(query_pts), k)
 
-    return idx.numpy().astype(np.int32)
+    # Torch.cdist outputs a distance vector of shape (B, N, M)
+    dist, idx = torch.cdist(support_pts, query_pts).topk(k)
+
+    return dist, idx
 
 class RandLANet(torch.nn.Module):
     def __init__(self, config, device):
@@ -23,7 +23,7 @@ class RandLANet(torch.nn.Module):
         self.device = device
         self.config = config
         self.decimation = 4
-        self.num_neighbours = 16
+        self.num_neighbours = 4
 
         # self.fc0 = torch.nn.Linear(self.config.in_channels, self.config.dim_features)
         self.fc0 = torch.nn.Linear(3, 8)
@@ -201,9 +201,12 @@ class LocalSpatialEncoding(torch.nn.Module):
             if relative_features is None:
                 raise ValueError("LocSE module requires relative featues for second pass")
 
+        print(relative_features.size())
         relative_features = self.mlp(relative_features)
+        print(relative_features.size())
 
         neighbour_features = self.gather_neighbour(features.transpose(1,2).squeeze(3), neighbour_indices)
+        print(neighbour_features.size())
 
         return torch.cat([neighbour_features, relative_features], dim=1), relative_features
 
@@ -257,10 +260,18 @@ class LocalFeatureAggregation(torch.nn.Module):
         :param neighbour_indices: Indices of neighbour
         :return: torch.Tensor of shape (B, 2*d_out, N, 1)
         """
-        neighbour_indices = knn_search(coords.cpu().contiguous(), coords.cpu().contiguous(), self.num_neighbours)
+
+        dist, neighbour_indices = knn_search(coords, coords, self.num_neighbours)
+        print(f"indices: {neighbour_indices.size()}")
+
+        print(f"Before linear layer: {features.size()}")
 
         x = self.mlp1(features)
+
+        print(f"After linear layer: {x.size()}")
         x, neighbour_features = self.lse1(coords, x, neighbour_indices)
+        print(f"After lse layer: {x.size()} {neighbour_features.size()}")
+
         x = self.pool1(x)
 
         x, _ = self.lse2(coords, x, neighbour_indices, relative_features = neighbour_features)
