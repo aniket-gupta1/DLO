@@ -173,7 +173,11 @@ class Transformer_Model(nn.Module):
 
 
 class DLO_net(nn.Module):
-    def __init__(self):
+    def __init__(self, config, device):
         super(DLO_net, self).__init__()
-        pass
+        self.encoder = RandLANet(config, device)
+
+    def forward(self, input):
+        self.encoder(input)
+
 

@@ -1,26 +1,54 @@
 import torch
+import open3d.core as o3c
+import numpy as np
+
+def knn_search(support_pts, query_pts, k):
+    """KNN search.
+    Args:
+        support_pts: points you have, N1*3
+        query_pts: points you want to know the neighbour index, N2*3
+        k: Number of neighbours in knn search
+    Returns:
+        neighbor_idx: neighboring points indexes, N2*k
+    """
+    nns = o3c.nns.NearestNeighborSearch(o3c.Tensor.from_numpy(support_pts))
+    nns.knn_index()
+    idx, dist = nns.knn_search(o3c.Tensor.from_numpy(query_pts), k)
+
+    return idx.numpy().astype(np.int32)
 
 class RandLANet(torch.nn.Module):
     def __init__(self, config, device):
         super(RandLANet, self).__init__()
         self.device = device
         self.config = config
+        self.decimation = 4
+        self.num_neighbours = 16
 
-        self.fc0 = torch.nn.Linear(self.config.in_channels, self.config.dim_features)
-        self.bn0 = torch.nn.BatchNorm2d(self.config.dim_features, eps=1e-6, momentum=0.01)
+        # self.fc0 = torch.nn.Linear(self.config.in_channels, self.config.dim_features)
+        self.fc0 = torch.nn.Linear(3, 8)
+        self.bn0 = torch.nn.BatchNorm2d(8, eps=1e-6, momentum=0.01)
         self.lrelu = torch.nn.LeakyReLU(0.2)
 
         # Define the Encoder
-        self.encoder = []
-        dim_feature = self.config.dim_features
-        for i in range(self.config.num_layers):
-            self.encoder.append(LocalFeatureAggregation(dim_feature, self.config.dim_output[i],
-                                                        self.config.num_neighbours))
-            dim_feature = 2*self.config.dim_output[i]
+        # self.encoder = []
+        # dim_feature = self.config.dim_features
+        # for i in range(self.config.num_layers):
+        #     self.encoder.append(LocalFeatureAggregation(dim_feature, self.config.dim_output[i],
+        #                                                 self.config.num_neighbours))
+        #     dim_feature = 2*self.config.dim_output[i]
+        #
+        # self.encoder = torch.nn.ModuleList(self.encoder)
 
-        self.encoder = torch.nn.ModuleList(self.encoder)
+        self.encoder = torch.nn.ModuleList([
+            LocalFeatureAggregation(8, 16, self.num_neighbours),
+            LocalFeatureAggregation(32, 64, self.num_neighbours),
+            LocalFeatureAggregation(128, 128, self.num_neighbours),
+            LocalFeatureAggregation(256, 256, self.num_neighbours)
+        ])
 
-        self.mlp = SharedMLP(dim_feature, dim_feature, activation_fn=torch.nn.LeakyReLU(0.2))
+        # self.mlp = SharedMLP(dim_feature, dim_feature, activation_fn=torch.nn.LeakyReLU(0.2))
+        self.mlp = SharedMLP(512, 512, activation_fn=torch.nn.LeakyReLU(0.2))
 
     @staticmethod
     def random_sample(feature, pool_idx):
@@ -44,34 +72,54 @@ class RandLANet(torch.nn.Module):
 
         return pool_features
 
-    @staticmethod
-    def nearest_interpolation(feature, interpolation_idx):
-        pass
-
     def forward(self, input):
         """
         Forward pass of the complete model
         :param input: torch.Tensor of shape (B,N,d_in)
         :return: torch.Tensor of shape
         """
-        feat = input['features'].to(self.device)
-        coords_list = [arr.to(self.device) for arr in input['coords']]
-        neighbour_indices_list = [arr.to(self.device) for arr in input['neighbour_indices']]
-        subsample_indices_list = [arr.to(self.device) for arr in input['sub_idx']]
+        print(f"Input size: {input.size()}")
+        N = input.size(1)
+        coords = input[..., :3].clone().cpu()
 
-        feat = self.fc0(feat).transpose(-2, -1).unsqueeze(-1) # (B, dim_feature, N, 1)
-        feat = self.bn0(feat)
-        feat = self.lrelu(feat)
+        # Pass input pointcloud through the first layer
+        x = self.fc0(input).transpose(-2,-1).unsqueeze(-1)
+        x = self.lrelu(self.bn0(x))
 
-        # Pass through the encoder and get the pointcloud encoding
-        for i in range(self.config.num_layers):
-            feat_encoder_i = self.encoder[i](coords_list[i], feat, neighbour_indices_list[i])
+        print(f" Feature vector size: {x.size()}")
+        d = self.decimation
+        decimation_ratio = 1
 
-            feat_sampled_i = self.random_sample(feat_encoder_i, subsample_indices_list[i])
+        permutation = torch.randperm(N)
+        coords = coords[:, permutation]
+        x = x[:, :, permutation]
 
-            feat = feat_sampled_i
+        for lfa in self.encoder:
+            # at iteration i, x.shape = (B, N//(d**i), d_in)
+            x = lfa(coords[:, :N // decimation_ratio], x)
+            decimation_ratio *= d
+            x = x[:, :, :N // decimation_ratio]
 
-        feat = self.mlp(feat)
+        feat = self.mlp(x)
+
+        # feat = input['features'].to(self.device)
+        # coords_list = [arr.to(self.device) for arr in input['coords']]
+        # neighbour_indices_list = [arr.to(self.device) for arr in input['neighbour_indices']]
+        # subsample_indices_list = [arr.to(self.device) for arr in input['sub_idx']]
+        #
+        # feat = self.fc0(feat).transpose(-2, -1).unsqueeze(-1) # (B, dim_feature, N, 1)
+        # feat = self.bn0(feat)
+        # feat = self.lrelu(feat)
+        #
+        # # Pass through the encoder and get the pointcloud encoding
+        # for i in range(self.config.num_layers):
+        #     feat_encoder_i = self.encoder[i](coords_list[i], feat, neighbour_indices_list[i])
+        #
+        #     feat_sampled_i = self.random_sample(feat_encoder_i, subsample_indices_list[i])
+        #
+        #     feat = feat_sampled_i
+        #
+        # feat = self.mlp(feat)
 
         return feat
 
@@ -201,7 +249,7 @@ class LocalFeatureAggregation(torch.nn.Module):
         self.shortcut = SharedMLP(d_in, 2*d_out)
         self.lrelu = torch.nn.LeakyReLU()
 
-    def forward(self, coords, features, neighbour_indices):
+    def forward(self, coords, features):
         """
         Forward pass
         :param coords: coordinates of the point cloud; torch.Tensor (B, N, 3)
@@ -209,6 +257,7 @@ class LocalFeatureAggregation(torch.nn.Module):
         :param neighbour_indices: Indices of neighbour
         :return: torch.Tensor of shape (B, 2*d_out, N, 1)
         """
+        neighbour_indices = knn_search(coords.cpu().contiguous(), coords.cpu().contiguous(), self.num_neighbours)
 
         x = self.mlp1(features)
         x, neighbour_features = self.lse1(coords, x, neighbour_indices)
