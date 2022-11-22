@@ -41,7 +41,6 @@ class SharedMLP(nn.Module):
             x = self.activation_fn(x)
         return x
 
-
 class LocalSpatialEncoding(nn.Module):
     def __init__(self, d, num_neighbors, device):
         super(LocalSpatialEncoding, self).__init__()
@@ -82,8 +81,6 @@ class LocalSpatialEncoding(nn.Module):
             features.expand(B, -1, N, K)
         ), dim=-3)
 
-
-
 class AttentivePooling(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(AttentivePooling, self).__init__()
@@ -108,8 +105,6 @@ class AttentivePooling(nn.Module):
         features = torch.sum(scores * x, dim=-1, keepdim=True) # shape (B, d_in, N, 1)
 
         return self.mlp(features)
-
-
 
 class LocalFeatureAggregation(nn.Module):
     def __init__(self, d_in, d_out, num_neighbors, device):
@@ -149,7 +144,6 @@ class LocalFeatureAggregation(nn.Module):
 
         return self.lrelu(self.mlp2(x) + self.shortcut(features))
 
-
 class RandLANet(nn.Module):
     def __init__(self, d_in, num_neighbors=4, decimation=4, device=torch.device('cpu')):
         super(RandLANet, self).__init__()
@@ -174,8 +168,6 @@ class RandLANet(nn.Module):
         self.mlp = SharedMLP(512, 512, activation_fn=nn.ReLU())
 
         self.device = device
-
-        # self = self.to(device)
 
     def forward(self, input):
         """

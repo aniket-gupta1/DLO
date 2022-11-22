@@ -1,8 +1,7 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from randlanet import RandLANet
+
 import math
 
 class MHA(nn.Module):
@@ -51,8 +50,6 @@ class MHA(nn.Module):
                                        key_reshaped.transpose(1, 2).transpose(2, 3)) / math.sqrt(C)
 
         if mask is not None:
-            # We simply set the similarity scores to be near zero for the positions
-            # where the attention should not be done. Think of why we do this.
             dot_prod_scores = dot_prod_scores.masked_fill(mask == 0, -1e9)
 
         attention_scores = F.softmax(dot_prod_scores, dim=-1)
@@ -73,16 +70,6 @@ class FFN(nn.Module):
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(ff_dim, input_dim)
 
-        self.dropout0 = nn.Dropout(dropout)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-        self.dropout3 = nn.Dropout(dropout)
-
-        self.norm1 = nn.LayerNorm(input_dim)
-        self.norm2 = nn.LayerNorm(input_dim)
-        self.norm3 = nn.LayerNorm(input_dim)
-
-
     def forward(self, x:torch.Tensor):
         y = self.fc2(self.relu(self.fc1(x)))
         return y
@@ -90,15 +77,39 @@ class FFN(nn.Module):
 class Cross_EncoderCell(nn.Module):
     def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int, ff_dim:int, dropout:float):
         super(Cross_EncoderCell, self).__init__()
-        self.attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+        self.self_attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+        self.cross_attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+
         self.dropout1 = nn.Dropout(dropout)
-        self.layer_norm1 = nn.LayerNorm(input_dim_Q)
+        self.layer_norm1 = nn.LayerNorm(input_dim_V)
 
         self.fc_model = FFN(input_dim_Q, ff_dim, dropout)
         self.dropout2 = nn.Dropout(dropout)
-        self.layer_norm2 = nn.LayerNorm(input_dim_Q)
+        self.layer_norm2 = nn.LayerNorm(input_dim_V)
 
-    def forward(self, x: torch.Tensor, mask:torch.Tensor=None):
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask:torch.Tensor=None, tgt_mask:torch.Tensor=None):
+        # Apply Self-Attention to each pointcloud embedding
+        src_attn = self.self_attn(src, src, src, src_mask)
+        src_attn = self.dropout1(src_attn)
+        src_attn = self.layer_norm1(src_attn+src)
+
+        tgt_attn = self.self_attn(tgt, tgt, tgt, tgt_mask)
+        tgt_attn = self.dropout1(tgt_attn)
+        tgt_attn = self.layer_norm1(tgt_attn+tgt)
+
+        # Apply Cross Attention
+        cross_src_attn = self.cross_attn(query=src_attn, key=tgt_attn, value=tgt_attn, mask=tgt_mask)
+        cross_src_attn = self.dropout2(cross_src_attn)
+        cross_src_attn = self.layer_norm2(cross_src_attn)
+
+        cross_tgt_attn = self.cross_attn(query=tgt_attn, key=src_attn, value=src_attn, mask=src_mask)
+        cross_tgt_attn = self.dropout2(cross_tgt_attn)
+        cross_tgt_attn = self.layer_norm2(cross_tgt_attn)
+
+        # Pass through Feed forward network
+        y_src = self.fc_model(cross_src_attn)
+
+
         y_attn = self.attn(x, x, x, mask)
         y_attn = self.dropout1(y_attn)
         y_attn = self.layer_norm1(y_attn + x)
@@ -151,9 +162,9 @@ class Transformer_Model(nn.Module):
         super(Transformer_Model, self).__init__()
 
         self.pe = PositionalEncoding(input_dim, device)
-        self.encoder = TransformerEncoder(dim_Q, dim_k, dim_V, num_heads, ff_dim, num_cells, dropout)
-        self.decoder = TransformerDecoder(dim_Q, dim_k, dim_V, num_heads, ff_dim, num_cells, dropout)
-        self.output = nn.Linear(dim_Q, target)
+        # self.encoder = TransformerEncoder(dim_Q, dim_k, dim_V, num_heads, ff_dim, num_cells, dropout)
+        # self.decoder = TransformerDecoder(dim_Q, dim_k, dim_V, num_heads, ff_dim, num_cells, dropout)
+        # self.output = nn.Linear(dim_Q, target)
 
     def forward(self, src, tgt, src_mask, tgt_mask):
         x_src = self.pe(src)
@@ -168,34 +179,9 @@ class Transformer_Model(nn.Module):
 
 
 
-class DLO_net(nn.Module):
-    def __init__(self, config, device):
-        super(DLO_net, self).__init__()
-        self.encoder = RandLANet(d_in=3, num_neighbors=16, decimation=4, device=device)
-        self.cross_attention = Transformer_Model()
 
-    def forward(self, input):
-        input = self.encoder(input)
-        output = self.cross_attention(input)
-
-        return output
 
 if __name__=="__main__":
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    #
-    # d_in = 3
-    # pc1 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
-    # pc2 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
-    #
-    # backbone = RandLANet(d_in, 16, 4, device)
-    # backbone.to(device)
-    #
-    # pc1_encoding = backbone(pc1)
-    # pc2_encoding = backbone(pc2)
-    #
-    # cross_attention = Transformer_Model()
-    # transformation_matrix = cross_attention(pc1_encoding, pc2_encoding)
-
     x = torch.randn((2, 10, 8))
     mask = torch.randn((2, 10)) > 0.5
     mask = mask.unsqueeze(1).unsqueeze(-1)

@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,12 +24,12 @@ class MHA(nn.Module):
         self.dim_per_head = input_dim_Q//num_heads #todo Check this from the maths
 
         # Define the linear transformation layers for key, value and query
-        self.wq = nn.Linear(self.input_dim_Q, self.input_dim_Q)
-        self.wk = nn.Linear(self.input_dim_K, self.input_dim_K)
-        self.wv = nn.Linear(self.input_dim_V, self.input_dim_V)
+        self.wq = nn.Linear(self.input_dim_Q, self.num_heads*self.input_dim_Q)
+        self.wk = nn.Linear(self.input_dim_K, self.num_heads*self.input_dim_K)
+        self.wv = nn.Linear(self.input_dim_V, self.num_heads*self.input_dim_V)
 
         # Define the output layer
-        self.output = nn.Linear(self.input_dim_V, self.input_dim_V) #todo: Check this mathematically.
+        self.output = nn.Linear(self.num_heads*input_dim_Q, self.input_dim_Q) #todo: Check this mathematically.
 
     def forward(self, query:torch.Tensor, key:torch.Tensor, value:torch.Tensor, mask:torch.Tensor = None):
         """
@@ -41,14 +40,17 @@ class MHA(nn.Module):
         :return: output of the MHA module
         """
         B = query.size(0)
+        Lq = query.size(1)
+        Lv = value.size(1)
         C = query.size(2)
+        d_k = C
 
-        query_reshaped = self.wq(query).view(B, -1, self.num_heads, self.dim_per_head)
-        key_reshaped = self.wk(key).view(B, -1, self.num_heads, self.dim_per_head)
-        value_reshaped = self.wv(value).view(B, -1, self.num_heads, self.dim_per_head)
+        query_reshaped = self.wq(query).view(B, Lq, self.num_heads, C)
+        key_reshaped = self.wk(key).view(B, Lv, self.num_heads, C)
+        value_reshaped = self.wv(value).view(B, Lv, self.num_heads, C)
 
         dot_prod_scores = torch.matmul(query_reshaped.transpose(1, 2),
-                                       key_reshaped.transpose(1, 2).transpose(2, 3)) / math.sqrt(C)
+                                       key_reshaped.transpose(1, 2).transpose(2, 3)) / math.sqrt(d_k)
 
         if mask is not None:
             # We simply set the similarity scores to be near zero for the positions
@@ -58,7 +60,7 @@ class MHA(nn.Module):
         attention_scores = F.softmax(dot_prod_scores, dim=-1)
         modulated_scores = torch.matmul(attention_scores, value_reshaped.transpose(1, 2))
         modulated_scores = modulated_scores.transpose(1, 2)
-        modulated_scores = modulated_scores.reshape(B, -1, self.num_heads * self.dim_per_head)
+        modulated_scores = modulated_scores.reshape(B, Lq, self.num_heads * C)
 
         out = self.output(modulated_scores)
 
@@ -73,23 +75,13 @@ class FFN(nn.Module):
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(ff_dim, input_dim)
 
-        self.dropout0 = nn.Dropout(dropout)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-        self.dropout3 = nn.Dropout(dropout)
-
-        self.norm1 = nn.LayerNorm(input_dim)
-        self.norm2 = nn.LayerNorm(input_dim)
-        self.norm3 = nn.LayerNorm(input_dim)
-
-
     def forward(self, x:torch.Tensor):
         y = self.fc2(self.relu(self.fc1(x)))
         return y
 
-class Cross_EncoderCell(nn.Module):
+class TransformerEncoderCell(nn.Module):
     def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int, ff_dim:int, dropout:float):
-        super(Cross_EncoderCell, self).__init__()
+        super(TransformerEncoderCell, self).__init__()
         self.attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
         self.dropout1 = nn.Dropout(dropout)
         self.layer_norm1 = nn.LayerNorm(input_dim_Q)
@@ -109,11 +101,11 @@ class Cross_EncoderCell(nn.Module):
 
         return y
 
-class Cross_Encoder(nn.Module):
+class TransformerEncoder(nn.Module):
     def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int, ff_dim:int, num_cells:int, dropout:float = 0.1):
-        super(Cross_Encoder, self).__init__()
+        super(TransformerEncoder, self).__init__()
         self.model = nn.ModuleList(
-            [Cross_EncoderCell(input_dim_Q, input_dim_K, input_dim_V, num_heads, ff_dim, dropout) for _ in range(num_cells)])
+            [TransformerEncoderCell(input_dim_Q, input_dim_K, input_dim_V, num_heads, ff_dim, dropout) for _ in range(num_cells)])
         self.layer_norm = nn.LayerNorm(input_dim_Q)
 
     def forward(self, x:torch.Tensor, mask:torch.Tensor = None):
@@ -123,6 +115,49 @@ class Cross_Encoder(nn.Module):
         y = self.layer_norm(x)
         return y
 
+class TransformerDecoderCell(nn.Module):
+    def __init__(self, input_dim_Q: int, input_dim_K: int, input_dim_V: int, num_heads: int, ff_dim: int,
+                 dropout: float):
+        super(TransformerDecoderCell, self).__init__()
+        self.attn1 = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+        self.dropout1 = nn.Dropout(dropout)
+        self.layer_norm1 = nn.LayerNorm(input_dim_Q)
+
+        self.attn2 = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+        self.dropout2 = nn.Dropout(dropout)
+        self.layer_norm2 = nn.LayerNorm(input_dim_Q)
+
+        self.fc_model = FFN(input_dim_Q, ff_dim, dropout)
+        self.dropout3 = nn.Dropout(dropout)
+        self.layer_norm3 = nn.LayerNorm(input_dim_Q)
+
+    def forward(self, x: torch.Tensor, encoder_output: torch.Tensor,  src_mask: torch.Tensor = None, tgt_mask:torch.Tensor = None):
+        y_attn1 = self.attn1(x, x, x, tgt_mask)
+        y_attn1 = self.dropout1(y_attn1)
+        y_attn1 = self.layer_norm1(y_attn1 + x)
+
+        y_attn2 = self.attn1(y_attn1, encoder_output, encoder_output, src_mask)
+        y_attn2 = self.dropout1(y_attn2)
+        y_attn2 = self.layer_norm1(y_attn1 + y_attn2)
+
+        y = self.fc_model(y_attn2)
+        y = self.dropout2(y)
+        y = self.layer_norm2(y_attn2 + y)
+        return y
+
+class TransformerDecoder(nn.Module):
+    def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int, ff_dim:int, num_cells:int, dropout:float = 0.1):
+        super(TransformerDecoder, self).__init__()
+        self.model = nn.ModuleList(
+            [TransformerDecoderCell(input_dim_Q, input_dim_K, input_dim_V, num_heads, ff_dim, dropout) for _ in range(num_cells)])
+        self.layer_norm = nn.LayerNorm(input_dim_Q)
+
+    def forward(self, x:torch.Tensor, encoder_output: torch.Tensor,  src_mask: torch.Tensor = None, tgt_mask:torch.Tensor = None):
+        for layer in self.model:
+            x = layer(x, encoder_output, src_mask, tgt_mask)
+
+        y = self.layer_norm(x)
+        return y
 
 class PositionalEncoding(nn.Module):
     def __init__(self, input_dim:int, device, max_len:int=10000):
@@ -181,32 +216,20 @@ class DLO_net(nn.Module):
         return output
 
 if __name__=="__main__":
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    #
-    # d_in = 3
-    # pc1 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
-    # pc2 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
-    #
-    # backbone = RandLANet(d_in, 16, 4, device)
-    # backbone.to(device)
-    #
-    # pc1_encoding = backbone(pc1)
-    # pc2_encoding = backbone(pc2)
-    #
-    # cross_attention = Transformer_Model()
-    # transformation_matrix = cross_attention(pc1_encoding, pc2_encoding)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    x = torch.randn((2, 10, 8))
-    mask = torch.randn((2, 10)) > 0.5
-    mask = mask.unsqueeze(1).unsqueeze(-1)
-    num_heads = 4
-    model = MHA(8,8, 8, num_heads)
-    y = model(x, x, x, mask)
-    print(y.shape)
-    assert len(y.shape) == len(x.shape)
-    for dim_x, dim_y in zip(x.shape, y.shape):
-        assert dim_x == dim_y
-    print(y.shape)
+    d_in = 3
+    pc1 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
+    pc2 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
+
+    backbone = RandLANet(d_in, 16, 4, device)
+    backbone.to(device)
+
+    pc1_encoding = backbone(pc1)
+    pc2_encoding = backbone(pc2)
+
+    cross_attention = Transformer_Model()
+    transformation_matrix = cross_attention(pc1_encoding, pc2_encoding)
 
 
 
