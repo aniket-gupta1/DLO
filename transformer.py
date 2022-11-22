@@ -226,10 +226,8 @@ if __name__=="__main__":
     backbone.to(device)
 
     pc1_encoding = backbone(pc1)
-    pc2_encoding = backbone(pc2)
-
-    cross_attention = Transformer_Model()
-    transformation_matrix = cross_attention(pc1_encoding, pc2_encoding)
+    print(pc1_encoding.size())
+    # pc2_encoding = backbone(pc2)
 
 
 

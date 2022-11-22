@@ -1,3 +1,5 @@
+#Todo: Implement saving of attention weights in MHA class
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -68,10 +70,11 @@ class FFN(nn.Module):
         # Define the FFN to be put in front of the multi-head attention module
         self.fc1 = nn.Linear(input_dim, ff_dim)
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
         self.fc2 = nn.Linear(ff_dim, input_dim)
 
     def forward(self, x:torch.Tensor):
-        y = self.fc2(self.relu(self.fc1(x)))
+        y = self.fc2(self.dropout(self.relu(self.fc1(x))))
         return y
 
 class Cross_EncoderCell(nn.Module):
@@ -82,10 +85,13 @@ class Cross_EncoderCell(nn.Module):
 
         self.dropout1 = nn.Dropout(dropout)
         self.layer_norm1 = nn.LayerNorm(input_dim_V)
-
-        self.fc_model = FFN(input_dim_Q, ff_dim, dropout)
         self.dropout2 = nn.Dropout(dropout)
         self.layer_norm2 = nn.LayerNorm(input_dim_V)
+
+        self.fc_model = FFN(input_dim_Q, ff_dim, dropout)
+        self.dropout3 = nn.Dropout(dropout)
+        self.layer_norm3 = nn.LayerNorm(input_dim_V)
+
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask:torch.Tensor=None, tgt_mask:torch.Tensor=None):
         # Apply Self-Attention to each pointcloud embedding
@@ -100,39 +106,42 @@ class Cross_EncoderCell(nn.Module):
         # Apply Cross Attention
         cross_src_attn = self.cross_attn(query=src_attn, key=tgt_attn, value=tgt_attn, mask=tgt_mask)
         cross_src_attn = self.dropout2(cross_src_attn)
-        cross_src_attn = self.layer_norm2(cross_src_attn)
+        cross_src_attn = self.layer_norm2(cross_src_attn + src_attn)
 
         cross_tgt_attn = self.cross_attn(query=tgt_attn, key=src_attn, value=src_attn, mask=src_mask)
         cross_tgt_attn = self.dropout2(cross_tgt_attn)
-        cross_tgt_attn = self.layer_norm2(cross_tgt_attn)
+        cross_tgt_attn = self.layer_norm2(cross_tgt_attn + tgt_attn)
 
         # Pass through Feed forward network
         y_src = self.fc_model(cross_src_attn)
+        y_src = self.dropout3(y_src)
+        y_src = self.layer_norm3(y_src)
 
+        y_tgt = self.fc_model(cross_tgt_attn)
+        y_tgt = self.dropout3(y_tgt)
+        y_tgt = self.layer_norm3(y_tgt)
 
-        y_attn = self.attn(x, x, x, mask)
-        y_attn = self.dropout1(y_attn)
-        y_attn = self.layer_norm1(y_attn + x)
-
-        y = self.fc_model(y_attn)
-        y = self.dropout2(y)
-        y = self.layer_norm2(y_attn + y)
-
-        return y
+        return y_src, y_tgt
 
 class Cross_Encoder(nn.Module):
-    def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int, ff_dim:int, num_cells:int, dropout:float = 0.1):
+    def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int, ff_dim:int, num_cells:int,
+                 dropout:float = 0.1):
         super(Cross_Encoder, self).__init__()
+
         self.model = nn.ModuleList(
-            [Cross_EncoderCell(input_dim_Q, input_dim_K, input_dim_V, num_heads, ff_dim, dropout) for _ in range(num_cells)])
+            [Cross_EncoderCell(input_dim_Q, input_dim_K, input_dim_V, num_heads, ff_dim, dropout)
+             for _ in range(num_cells)])
+
         self.layer_norm = nn.LayerNorm(input_dim_Q)
 
-    def forward(self, x:torch.Tensor, mask:torch.Tensor = None):
+    def forward(self, src:torch.Tensor, tgt:torch.Tensor, src_mask:torch.Tensor=None, tgt_mask:torch.Tensor = None):
         for layer in self.model:
-            x = layer(x, mask)
+            src, tgt = layer(src, tgt, src_mask, tgt_mask)
 
-        y = self.layer_norm(x)
-        return y
+        # This layer norm seems redundant
+        # src = self.layer_norm(src)
+        # tgt = self.layer_norm(tgt)
+        return src, tgt
 
 
 class PositionalEncoding(nn.Module):
@@ -157,43 +166,63 @@ class PositionalEncoding(nn.Module):
 
         return x
 
-class Transformer_Model(nn.Module):
-    def __init__(self, input_dim, device):
-        super(Transformer_Model, self).__init__()
+class FCN_regression(nn.Module):
+    def __init__(self, cfg):
+        super(FCN_regression, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(cfg.input_dim, cfg.input_dim),
+            nn.ReLU(),
+            nn.Linear(cfg.input_dim, cfg.input_dim),
+            nn.ReLU(),
+            nn.Linear(cfg.input_dim, 12)
+        )
 
-        self.pe = PositionalEncoding(input_dim, device)
-        # self.encoder = TransformerEncoder(dim_Q, dim_k, dim_V, num_heads, ff_dim, num_cells, dropout)
+    def forward(self, x):
+        return self.model(x)
+
+class Cross_Attention_Model(nn.Module):
+    def __init__(self, cfg, device):
+        super(Cross_Attention_Model, self).__init__()
+
+        self.pe = PositionalEncoding(cfg.input_dim, device)
+        self.encoder = Cross_Encoder(cfg.dim_Q, cfg.dim_K, cfg.dim_V, cfg.num_heads, cfg.ff_dim, cfg.num_cells,
+                                     cfg.dropout)
+        self.regressor = FCN_regression(cfg)
         # self.decoder = TransformerDecoder(dim_Q, dim_k, dim_V, num_heads, ff_dim, num_cells, dropout)
         # self.output = nn.Linear(dim_Q, target)
 
-    def forward(self, src, tgt, src_mask, tgt_mask):
-        x_src = self.pe(src)
-        x_tgt = self.pe(tgt)
+    def forward(self, src, tgt, src_mask=None, tgt_mask=None):
+        src = self.pe(src)
+        tgt = self.pe(tgt)
 
-        encoder_output = self.encoder(x_src, src_mask)
-        decoder_output = self.decoder(x_tgt, encoder_output, src_mask, tgt_mask)
+        f_src, f_tgt = self.encoder(src, tgt, src_mask, tgt_mask)
+        feature_vector = torch.cat((f_src, f_tgt), dim=0)
 
-        logits = self.output(decoder_output)
+        transformation = self.regressor(feature_vector)
 
-        return logits
+        return transformation
 
-
-
-
+class config(object):
+    def __init__(self):
+        super(config, self).__init__()
+        self.input_dim = 3
+        self.dim_Q = 8
+        self.dim_K = 8
+        self.dim_V = 8
+        self.num_heads = 4
+        self.ff_dim = 10
+        self.num_cells = 1
+        self.dropout = 0.2
 
 if __name__=="__main__":
-    x = torch.randn((2, 10, 8))
-    mask = torch.randn((2, 10)) > 0.5
-    mask = mask.unsqueeze(1).unsqueeze(-1)
-    num_heads = 4
-    model = MHA(8,8, 8, num_heads)
-    y = model(x, x, x, mask)
-    print(y.shape)
-    assert len(y.shape) == len(x.shape)
-    for dim_x, dim_y in zip(x.shape, y.shape):
-        assert dim_x == dim_y
-    print(y.shape)
+    enc1 = torch.randn((1, 64, 64, 3))
+    enc2 = torch.randn((1, 64, 64, 3))
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    cfg = config()
+    model = Cross_Attention_Model(cfg, device)
 
+    tf = model(enc1, enc2)
+    print(tf.size())
 
 
 
