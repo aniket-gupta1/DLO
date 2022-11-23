@@ -176,7 +176,7 @@ class RandLANet(nn.Module):
         """
         Forward pass of the complete model
         :param input: torch.Tensor of shape (B,N,d_in)
-        :return: torch.Tensor of shape
+        :return: torch.Tensor of shape (B, 512, N//256, 1)
         """
 
         N = input.size(1)
@@ -211,7 +211,7 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     d_in = 4
-    cloud = 1000*torch.randn(1, 2**16, d_in).to(device)
+    cloud = 1000*torch.randn(1, 2**17, d_in).to(device)
     print(cloud.size())
     model = RandLANet(d_in, 16, 4, device)
     model.to(device)

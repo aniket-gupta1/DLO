@@ -19,10 +19,12 @@ class DLO_net(nn.Module):
 
     def forward(self, input):
         if input['frame_num']==0:
-            self.prev_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).unsqueeze(3)
+            self.prev_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).squeeze(3)
             return torch.Tensor([[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]])
         else:
-            self.curr_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).unsqueeze(3)
+            self.curr_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).squeeze(3)
+            print(f"Prev size: {self.prev_frame_encoding.size()}")
+            print(f"Curr size: {self.curr_frame_encoding.size()}")
             T = self.cross_attention(self.prev_frame_encoding, self.curr_frame_encoding)
             self.prev_frame_encoding = self.curr_frame_encoding
 
@@ -41,7 +43,9 @@ def train_epoch(model, optimizer, dataset,  loss_fn):
         # print(data['seq'])
         #
         # time.sleep(200000)
+        print(f"Frame {data['frame_num']} has pointcloud of shape {data['pointcloud'].shape}")
         T = model(data)
+
         if data['frame_num']==0:
             continue
         else:
