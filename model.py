@@ -23,10 +23,10 @@ class DLO_net(nn.Module):
             return torch.Tensor([[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]])
         else:
             self.curr_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).squeeze(3)
-            print(f"Prev size: {self.prev_frame_encoding.size()}")
-            print(f"Curr size: {self.curr_frame_encoding.size()}")
-            print(f"permuted: {self.prev_frame_encoding.transpose(1,2).size()}")
-            # time.sleep(2000)
+            # print(f"Prev size: {self.prev_frame_encoding.size()}")
+            # print(f"Curr size: {self.curr_frame_encoding.size()}")
+            # print(f"permuted: {self.prev_frame_encoding.transpose(1,2).size()}")
+
             T = self.cross_attention(self.prev_frame_encoding.transpose(1,2),
                                      self.curr_frame_encoding.transpose(1,2))
             self.prev_frame_encoding = self.curr_frame_encoding
@@ -54,11 +54,11 @@ def train_epoch(model, optimizer, dataset,  loss_fn):
         else:
             optimizer.zero_grad()
 
-            print(T)
+            pose = data['pose'].type(torch.float32).to(device)
 
-            loss = loss_fn(T, data['pose'])
+            loss = loss_fn(T, pose)
 
-            loss.backward()
+            loss.backward(retain_graph=False)
             optimizer.step()
 
             losses += loss.item()
