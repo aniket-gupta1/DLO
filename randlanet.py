@@ -1,6 +1,7 @@
 import time
 import torch
 import torch.nn as nn
+from torch_points_kernels import knn
 
 def knn_search(support_pts, query_pts, k):
     """KNN search.
@@ -11,7 +12,9 @@ def knn_search(support_pts, query_pts, k):
     Returns:
         neighbor_idx: neighboring points data (index, distance)
     """
-
+    print(support_pts.size())
+    print(query_pts.size())
+    print(k)
     # Torch.cdist outputs a distance vector of shape (B, N, M)
     dist, idx = torch.cdist(support_pts, query_pts).topk(k)
 
@@ -131,8 +134,8 @@ class LocalFeatureAggregation(nn.Module):
         :param features: features of the point cloud; torch.Tensor (B, d, N, 1)
         :return: torch.Tensor of shape (B, 2*d_out, N, 1)
         """
-
-        knn_output = knn_search(coords, coords, self.num_neighbors)
+        # knn_output = knn(coords.cpu().contiguous(), coords.cpu().contiguous(), self.num_neighbors)
+        knn_output = knn(coords, coords, self.num_neighbors)
 
         x = self.mlp1(features)
 
@@ -207,7 +210,7 @@ class RandLANet(nn.Module):
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    d_in = 3
+    d_in = 4
     cloud = 1000*torch.randn(1, 2**16, d_in).to(device)
     print(cloud.size())
     model = RandLANet(d_in, 16, 4, device)

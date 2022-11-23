@@ -1,49 +1,79 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from torch.utils.data import DataLoader
 from randlanet import RandLANet
-import math
+from transformer_cross_attention import Cross_Attention_Model, config
+from kitti import kitti
+from transformer import Transformer_Model
+import time
 
 class DLO_net(nn.Module):
-    def __init__(self, config, device):
+    def __init__(self, cfg, device):
         super(DLO_net, self).__init__()
-        self.encoder = RandLANet(d_in=3, num_neighbors=16, decimation=4, device=device)
-        self.cross_attention = Transformer_Model()
+        self.backbone = RandLANet(d_in=3, num_neighbors=16, decimation=4, device=device)
+        self.cross_attention = Cross_Attention_Model(cfg, device)
+
+        self.prev_frame_encoding = None
+        self.device = device
 
     def forward(self, input):
-        input = self.encoder(input)
-        output = self.cross_attention(input)
+        if input['frame_num']==0:
+            self.prev_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).unsqueeze(3)
+            return torch.Tensor([[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]])
+        else:
+            self.curr_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).unsqueeze(3)
+            T = self.cross_attention(self.prev_frame_encoding, self.curr_frame_encoding)
+            self.prev_frame_encoding = self.curr_frame_encoding
 
-        return output
+        return T
+
+def train_epoch(model, optimizer, dataset,  loss_fn):
+    model.train()
+
+    losses = 0
+    dataloader = DataLoader(dataset, batch_size=1)
+
+    for data in dataloader:
+        # print(data['pointcloud'].size())
+        # print(data['pose'])
+        # print(data['frame_num'])
+        # print(data['seq'])
+        #
+        # time.sleep(200000)
+        T = model(data)
+        if data['frame_num']==0:
+            continue
+        else:
+            optimizer.zero_grad()
+
+            loss = loss_fn(T, data['pose'])
+
+            loss.backward()
+            optimizer.step()
+
+            losses += loss.item()
+
+    return losses/(len(dataloader)-1)
+
+def train(cfg, device):
+    dataset = kitti(cfg, mode="training")
+    net = DLO_net(cfg, device).to(device)
+    optimizer = torch.optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
+                                  betas=(0.9, 0.98), eps=1e-9)
+
+    loss_fn = torch.nn.MSELoss()
+
+    for epoch in range(cfg.num_epochs):
+        tic = time.time()
+        loss = train_epoch(net, optimizer, dataset, loss_fn)
+        print(f"Epoch: {epoch} || Loss: {loss} || Time: {time.time()-tic}")
 
 if __name__=="__main__":
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    #
-    # d_in = 3
-    # pc1 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
-    # pc2 = 1000 * torch.randn(1, 2 ** 16, d_in).to(device)
-    #
-    # backbone = RandLANet(d_in, 16, 4, device)
-    # backbone.to(device)
-    #
-    # pc1_encoding = backbone(pc1)
-    # pc2_encoding = backbone(pc2)
-    #
-    # cross_attention = Transformer_Model()
-    # transformation_matrix = cross_attention(pc1_encoding, pc2_encoding)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    x = torch.randn((2, 10, 8))
-    mask = torch.randn((2, 10)) > 0.5
-    mask = mask.unsqueeze(1).unsqueeze(-1)
-    num_heads = 4
-    model = MHA(8,8, 8, num_heads)
-    y = model(x, x, x, mask)
-    print(y.shape)
-    assert len(y.shape) == len(x.shape)
-    for dim_x, dim_y in zip(x.shape, y.shape):
-        assert dim_x == dim_y
-    print(y.shape)
+    cfg = config(256)
+    train(cfg, device)
 
 
 

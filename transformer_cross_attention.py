@@ -1,5 +1,5 @@
 #Todo: Implement saving of attention weights in MHA class
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -143,7 +143,6 @@ class Cross_Encoder(nn.Module):
         # tgt = self.layer_norm(tgt)
         return src, tgt
 
-
 class PositionalEncoding(nn.Module):
     def __init__(self, input_dim:int, device, max_len:int=10000):
         super(PositionalEncoding, self).__init__()
@@ -196,32 +195,67 @@ class Cross_Attention_Model(nn.Module):
         tgt = self.pe(tgt)
 
         f_src, f_tgt = self.encoder(src, tgt, src_mask, tgt_mask)
-        feature_vector = torch.cat((f_src, f_tgt), dim=0)
+        feature_vector = torch.cat((f_src, f_tgt), dim=1)
+        feature_vector = torch.mean(feature_vector, dim=1)
 
         transformation = self.regressor(feature_vector)
 
         return transformation
 
+
+def _create_mask(src, tgt, pad_token=0):
+    def _subsequent_mask(size):
+        attn_shape = (1, size, size)
+        subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
+        return torch.from_numpy(subsequent_mask) == 0
+
+    src_mask = (src!=pad_token).unsqueeze(-2).unsqueeze(-1)
+
+    tgt_mask = (tgt!=pad_token).unsqueeze(-2)
+    tgt_mask = tgt_mask & _subsequent_mask(tgt.shape[1]).type_as(tgt_mask.data)
+
+    return src_mask, tgt_mask.unsqueeze(1)
+
 class config(object):
-    def __init__(self):
+    def __init__(self, d):
         super(config, self).__init__()
-        self.input_dim = 3
-        self.dim_Q = 8
-        self.dim_K = 8
-        self.dim_V = 8
+        self.input_dim = d
+        self.dim_Q = d
+        self.dim_K = d
+        self.dim_V = d
         self.num_heads = 4
         self.ff_dim = 10
         self.num_cells = 1
         self.dropout = 0.2
 
-if __name__=="__main__":
-    enc1 = torch.randn((1, 64, 64, 3))
-    enc2 = torch.randn((1, 64, 64, 3))
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    cfg = config()
-    model = Cross_Attention_Model(cfg, device)
+        # Dataloader
+        self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
+        self.validation_seq = 8
 
-    tf = model(enc1, enc2)
+        # Optimizer
+        self.lr = 0.0001
+        self.weight_decay = 0.0001
+
+        # training
+        self.num_epochs = 10
+
+
+
+
+if __name__=="__main__":
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    enc1 = torch.randn((1, 256, 256)).to(device)
+    enc2 = torch.randn((1, 256, 256)).to(device)
+
+    enc1_mask, enc2_mask = _create_mask(enc1, enc2)
+    enc1_mask = enc1_mask.to(device)
+    enc2_mask = enc2_mask.to(device)
+
+    cfg = config(256)
+    model = Cross_Attention_Model(cfg, device)
+    model.to(device)
+
+    tf = model(enc1, enc2)#, enc1_mask, enc2_mask)
     print(tf.size())
 
 

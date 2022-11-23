@@ -1,3 +1,5 @@
+import time
+
 import torch
 from torch.utils.data import Dataset
 import os
@@ -26,7 +28,7 @@ class kitti(Dataset):
             self.frames[seq] = np.sort([vf[:-4] for vf in os.listdir(velo_path) if vf.endswith('.bin')])
 
             if self.mode=="training" or self.mode=="validation":
-                pose_path = os.path.join(self.root, 'poses') + f"{seq}.txt"
+                pose_path = os.path.join(self.root, 'poses') + f"/{seq}.txt"
                 self.poses[seq] = self._read_pose(pose_path)
 
             for i, vf in enumerate(sorted(os.listdir(velo_path))):
@@ -42,9 +44,20 @@ class kitti(Dataset):
 
     def _pcread(self, path):
         frame_points = np.fromfile(path, dtype=np.float32)
-        return frame_points.reshape((-1,4))
+        return frame_points.reshape((-1,4))[:, 0:3]
 
     def _read_pose(self, file_path):
+        pose_list = []
+        with open(file_path) as file:
+            while True:
+                line = file.readline()
+                if not line:
+                    break
+                T = np.fromstring(line, dtype=np.float64, sep=' ')
+                pose_list.append(T)
+        return pose_list
+
+    def _read_pose_mat(self, file_path):
         pose_list = []
         with open(file_path) as file:
             while True:
@@ -68,9 +81,10 @@ class kitti(Dataset):
 
         data = {}
 
-        data['pointcloud'] = self._pcread(pc_path)
+        data['pointcloud'] = torch.from_numpy(self._pcread(pc_path))
         data['seq'] = seq
         data['pose'] = pose
+        data['frame_num'] = int(pc_path[-10:-4])
 
         return data
 
