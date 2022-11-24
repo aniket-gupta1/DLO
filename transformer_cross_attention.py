@@ -159,6 +159,7 @@ class PositionalEncoding(nn.Module):
         norm = self.max_len ** (torch.arange(0, self.input_dim, 2)/N)
         pos = torch.arange(L).unsqueeze(1)
         pe = torch.zeros(L,N)
+
         pe [:,::2] = torch.sin(pos/norm)
         pe [:,1::2] = torch.cos(pos/norm)
 
@@ -178,6 +179,7 @@ class FCN_regression(nn.Module):
         )
 
     def forward(self, x):
+        print(f"X: {x.size()}")
         return self.model(x)
 
 class Cross_Attention_Model(nn.Module):
@@ -196,7 +198,7 @@ class Cross_Attention_Model(nn.Module):
         tgt = self.pe(tgt)
 
         f_src, f_tgt = self.encoder(src, tgt, src_mask, tgt_mask)
-        feature_vector = torch.cat((f_src, f_tgt), dim=0)
+        feature_vector = torch.cat((f_src, f_tgt), dim=1)
 
         transformation = self.regressor(feature_vector)
 
@@ -205,21 +207,24 @@ class Cross_Attention_Model(nn.Module):
 class config(object):
     def __init__(self):
         super(config, self).__init__()
-        self.input_dim = 3
-        self.dim_Q = 8
-        self.dim_K = 8
-        self.dim_V = 8
+        self.input_dim = 64
+        self.dim_Q = 64
+        self.dim_K = 64
+        self.dim_V = 64
         self.num_heads = 4
         self.ff_dim = 10
-        self.num_cells = 1
+        self.num_cells = 2
         self.dropout = 0.2
 
 if __name__=="__main__":
-    enc1 = torch.randn((1, 64, 64, 3))
-    enc2 = torch.randn((1, 64, 64, 3))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    enc1 = torch.randn((1, 64, 64)).to(device)
+    enc2 = torch.randn((1, 64, 64)).to(device)
+
     cfg = config()
     model = Cross_Attention_Model(cfg, device)
+    model.to(device)
 
     tf = model(enc1, enc2)
     print(tf.size())
