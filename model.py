@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from randlanet import RandLANet
-from transformer_cross_attention import Cross_Attention_Model, config
+from cross_attention import Cross_Attention_Model, config
 from kitti import kitti
 from transformer import Transformer_Model
 import time
