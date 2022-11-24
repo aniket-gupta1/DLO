@@ -89,5 +89,5 @@ class kitti(Dataset):
         return data
 
     def __len__(self):
-        return len(self.data_list)
+        return len(self.data_list)-1
 
