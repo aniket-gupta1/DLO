@@ -6,10 +6,12 @@ import os
 import numpy as np
 
 class kitti(Dataset):
-    def __init__(self, config, mode="training"):
+    def __init__(self, config, mode="training", inbetween_poses=False):
         super(kitti, self).__init__()
         self.root = config.root
         self.mode = mode
+        self.inbetween_poses = inbetween_poses
+        self.initial_pose = np.eye(4)
 
         if self.mode=="training":
             self.sequences = ['{:02d}'.format(i) for i in range(11) if i!=config.validation_seq]
@@ -54,6 +56,10 @@ class kitti(Dataset):
                 if not line:
                     break
                 T = np.fromstring(line, dtype=np.float64, sep=' ')
+
+                if self.inbetween_poses:
+                    T = np.append(T, [0,0,0,1])
+
                 pose_list.append(T)
         return pose_list
 
@@ -72,6 +78,16 @@ class kitti(Dataset):
 
         return pose_list
 
+    def _inbetween_pose(self, pose):
+        pose = np.reshape(pose, (4,4))
+        inbetween_pose = pose @ np.linalg.inv(self.initial_pose)
+
+        inbetween_pose = np.reshape(inbetween_pose, (16))
+        # print(f"inbetween shape: {inbetween_pose.shape} === {inbetween_pose[:,:12]}")
+
+        self.initial_pose = pose
+        return inbetween_pose[:12]
+
     def __getitem__(self, index):
         if self.mode=="training" or self.mode=="validation":
             seq, pc_path, pose = self.data_list[index]
@@ -83,7 +99,7 @@ class kitti(Dataset):
 
         data['pointcloud'] = torch.from_numpy(self._pcread(pc_path))
         data['seq'] = seq
-        data['pose'] = pose
+        data['pose'] = self._inbetween_pose(pose) if self.inbetween_poses else pose
         data['frame_num'] = int(pc_path[-10:-4])
 
         return data

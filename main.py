@@ -1,72 +1,76 @@
 import torch
-import os
-import time
-import argparse
-from model import DLO_net
-from kitti import kitti
+import torch.nn as nn
 from torch.utils.data import DataLoader
-from lietorch.lietorch import SE3
+from randlanet import RandLANet
+from cross_attention import Cross_Attention_Model, config
+from kitti import kitti
+from transformer import Transformer_Model
+from torch.utils.tensorboard import SummaryWriter
+import time
+from model import DLO_net
+from lietorch import SE3
 
 
 def parse_arguments():
     pass
 
-def train_epoch(model, dataloader, optimizer):
+def train_epoch(model, optimizer, dataset,  loss_fn, writer):
+    global prev_data
     model.train()
 
-    for data in enumerate(dataloader):
-        optimizer.zero_grad()
+    losses = 0
+    dataloader = DataLoader(dataset, batch_size=1)
 
-        point_clouds, poses = [x.cuda().float() for x in data]
+    for index, data in enumerate(dataloader):
+        # print(data['pointcloud'].size())
+        # print(data['pose'])
+        # print(data['frame_num'])
+        # print(data['seq'])
+        #
+        # time.sleep(200000)
+        print(f"Frame {data['frame_num']} has pointcloud of shape {data['pointcloud'].shape}")
 
-        poses = SE3(poses).inv()
-        out = model()
-        loss = a
-        loss.backward()
+        if data['frame_num']==0:
+            prev_data = data
+        else:
+            T = model(prev_data, data)
+            # print(f"T: {T}")
+            optimizer.zero_grad()
 
-        torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
-        optimizer.step()
+            pose = data['pose'].type(torch.float32).to(device)
 
-    return None
+            loss = loss_fn(T, pose)
 
-def evaluate(model, dataloader):
-    model.eval()
+            loss.backward(retain_graph=False)
+            optimizer.step()
 
-    with torch.no_grad():
-        for data in enumerate(dataloader):
-            acc = 0.0
+            losses += loss.item()
 
-    print(f'Validation Accuracy: {acc}')
-    return None
+            writer.add_scalar("Batch Loss/train", loss, index)
+            print(f"Batch_index: {index} || Loss: {loss}")
 
-def train(args, device):
-    dataset = kitti(None, "training")
-    dataloader = DataLoader(dataset, batch_size=10, shuffle=True)
+    return losses/(len(dataloader)-1)
 
-    model = DLO_net()
-    model = model.to(device)
+def train(cfg, device, writer):
+    dataset = kitti(cfg, mode="training")
+    net = DLO_net(cfg, device).to(device)
+    optimizer = torch.optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
+                                  betas=(0.9, 0.98), eps=1e-9)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    loss_fn = torch.nn.MSELoss()
 
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, args.lr, args.steps, pct_start=0.01,
-                                                    cycle_momentum=False, anneal_strategy='Linear')
-
-    for epoch in range(1, args.epoch + 1):
+    for epoch in range(cfg.num_epochs):
         tic = time.time()
-        train_epoch(model, dataloader, optimizer)
-        print(f"Time taken: {time.time()-tic}")
-
-        evaluate(model, dataloader)
-
-        scheduler.step(epoch)
+        loss = train_epoch(net, optimizer, dataset, loss_fn, writer)
+        writer.add_scalar("Loss", loss, epoch)
+        print("===========================================================")
+        print(f"Epoch: {epoch} || Loss: {loss} || Time: {time.time()-tic}")
+        print("===========================================================")
 
 if __name__=="__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--train', type=bool, default=True)
-    parser.add_argument('--lr', type=float, default=0.00001)
-    parser.add_argument('--epochs', type=int, default=1000)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    writer = SummaryWriter()
 
-    args = parser.parse_args()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train(args, device)
+    cfg = config(512)
+    train(cfg, device, writer)
+    writer.close()

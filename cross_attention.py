@@ -229,7 +229,8 @@ class config(object):
         self.dropout = 0.2
 
         # Dataloader
-        self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
+        # self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
+        self.root = "/media/aniket/77b12655-2aa3-4049-ac40-36a0a306712a/SemanticKITTI/dataset"
         self.validation_seq = 8
 
         # Optimizer

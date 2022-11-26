@@ -4,7 +4,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from randlanet import RandLANet
 from cross_attention import Cross_Attention_Model, config
-from kitti import kitti
+from kitti_poses import kitti
+# from kitti import kitti
 from transformer import Transformer_Model
 from torch.utils.tensorboard import SummaryWriter
 import time
@@ -48,21 +49,25 @@ def train_epoch(model, optimizer, dataset,  loss_fn, writer):
         if data['frame_num']==0:
             prev_data = data
         else:
-            T = model(prev_data, data)
-            print(f"T: {T}")
-            optimizer.zero_grad()
+            #T = model(prev_data, data)
+            # print(f"T: {T}")
+            #optimizer.zero_grad()
+            print(data['pose'].shape)
 
             pose = data['pose'].type(torch.float32).to(device)
+            print(pose)
+            print(pose.size())
+            time.sleep(20000)
 
-            loss = loss_fn(T, pose)
-
-            loss.backward(retain_graph=False)
-            optimizer.step()
-
-            losses += loss.item()
-
-            writer.add_scalar("Batch Loss/train", loss, index)
-            print(f"Batch_index: {index} || Loss: {loss}")
+            # loss = loss_fn(T, pose)
+            #
+            # loss.backward(retain_graph=False)
+            # optimizer.step()
+            #
+            # losses += loss.item()
+            #
+            # writer.add_scalar("Batch Loss/train", loss, index)
+            # print(f"Batch_index: {index} || Loss: {loss}")
 
     return losses/(len(dataloader)-1)
 

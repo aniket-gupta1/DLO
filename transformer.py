@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from randlanet import RandLANet
 import math
-from transformer_cross_attention import config
+from cross_attention import config
 
 class MHA_big(nn.Module):
     def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int):
