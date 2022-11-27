@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from randlanet import RandLANet
 import math
-from cross_attention import config
+from config import Config
 
 class MHA_big(nn.Module):
     def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int):
@@ -284,7 +284,7 @@ if __name__=="__main__":
     enc1 = torch.randn((1, 512, 256)).to(device)
     enc2 = torch.randn((1, 512, 256)).to(device)
 
-    cfg = config(256)
+    cfg = Config(256)
     model = Transformer_Model(cfg, device)
     model.to(device)
 

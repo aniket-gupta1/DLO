@@ -173,7 +173,7 @@ class FCN_regression(nn.Module):
             nn.ReLU(),
             nn.Linear(cfg.input_dim, cfg.input_dim),
             nn.ReLU(),
-            nn.Linear(cfg.input_dim, 12)
+            nn.Linear(cfg.input_dim, cfg.output_dim)
         )
 
     def forward(self, x):
@@ -216,32 +216,6 @@ def _create_mask(src, tgt, pad_token=0):
 
     return src_mask, tgt_mask.unsqueeze(1)
 
-class config(object):
-    def __init__(self, d):
-        super(config, self).__init__()
-        self.input_dim = d
-        self.dim_Q = d
-        self.dim_K = d
-        self.dim_V = d
-        self.num_heads = 4
-        self.ff_dim = 10
-        self.num_cells = 1
-        self.dropout = 0.2
-
-        # Dataloader
-        # self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
-        self.root = "/media/aniket/77b12655-2aa3-4049-ac40-36a0a306712a/SemanticKITTI/dataset"
-        self.validation_seq = 8
-
-        # Optimizer
-        self.lr = 0.0001
-        self.weight_decay = 0.0001
-
-        # training
-        self.num_epochs = 10
-
-
-
 
 if __name__=="__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -252,7 +226,7 @@ if __name__=="__main__":
     enc1_mask = enc1_mask.to(device)
     enc2_mask = enc2_mask.to(device)
 
-    cfg = config(256)
+    cfg = Config(256)
     model = Cross_Attention_Model(cfg, device)
     model.to(device)
 

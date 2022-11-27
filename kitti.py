@@ -1,15 +1,15 @@
 import time
-
 import torch
 from torch.utils.data import Dataset
 import os
 import numpy as np
 
 class kitti(Dataset):
-    def __init__(self, config, mode="training", inbetween_poses=False):
+    def __init__(self, config, mode="training", inbetween_poses=False, form_transformation=False):
         super(kitti, self).__init__()
         self.root = config.root
         self.mode = mode
+        self.form_transformation = form_transformation
         self.inbetween_poses = inbetween_poses
         self.initial_pose = np.eye(4)
 
@@ -57,7 +57,7 @@ class kitti(Dataset):
                     break
                 T = np.fromstring(line, dtype=np.float64, sep=' ')
 
-                if self.inbetween_poses:
+                if self.inbetween_poses or self.form_transformation:
                     T = np.append(T, [0,0,0,1])
 
                 pose_list.append(T)
@@ -86,7 +86,7 @@ class kitti(Dataset):
         # print(f"inbetween shape: {inbetween_pose.shape} === {inbetween_pose[:,:12]}")
 
         self.initial_pose = pose
-        return inbetween_pose[:12]
+        return inbetween_pose
 
     def __getitem__(self, index):
         if self.mode=="training" or self.mode=="validation":
@@ -99,11 +99,18 @@ class kitti(Dataset):
 
         data['pointcloud'] = torch.from_numpy(self._pcread(pc_path))
         data['seq'] = seq
-        data['pose'] = self._inbetween_pose(pose) if self.inbetween_poses else pose
         data['frame_num'] = int(pc_path[-10:-4])
+
+        if self.form_transformation and self.inbetween_poses:
+            data['pose'] = np.reshape(self._inbetween_pose(pose), (4,4))
+        elif self.form_transformation:
+            data['pose'] = np.reshape(pose, (3,4))
+        elif self.inbetween_poses:
+            data['pose'] = self._inbetween_pose(pose)[:12]
+        else:
+            data['pose'] = pose
 
         return data
 
     def __len__(self):
         return len(self.data_list)-1
-
