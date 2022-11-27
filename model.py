@@ -7,11 +7,28 @@ from transformer import Transformer_Model
 import time
 from config import Config
 
+class FCN_regression(nn.Module):
+    def __init__(self, cfg):
+        super(FCN_regression, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(cfg.input_dim, cfg.input_dim),
+            nn.ReLU(),
+            nn.Linear(cfg.input_dim, cfg.input_dim),
+            nn.ReLU(),
+            nn.Linear(cfg.input_dim, cfg.output_dim)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+
 class DLO_net_single(nn.Module):
     def __init__(self, cfg, device):
         super(DLO_net_single, self).__init__()
         self.backbone = RandLANet(d_in=3, num_neighbors=16, decimation=4, device=device)
         self.cross_attention = Cross_Attention_Model(cfg, device)
+        self.regressor = FCN_regression(cfg)
 
         self.prev_frame_encoding = None
         self.device = device
@@ -24,8 +41,11 @@ class DLO_net_single(nn.Module):
             curr_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).squeeze(3)
             print(self.prev_frame_encoding)
 
-            T = self.cross_attention(self.prev_frame_encoding.transpose(1,2),
+            attention_features = self.cross_attention(self.prev_frame_encoding.transpose(1,2),
                                      curr_frame_encoding.transpose(1,2))
+
+            T = self.regressor(attention_features)
+
             with torch.no_grad():
                 self.prev_frame_encoding = curr_frame_encoding
 
@@ -36,14 +56,16 @@ class DLO_net(nn.Module):
         super(DLO_net, self).__init__()
         self.backbone = RandLANet(d_in=3, num_neighbors=16, decimation=4, device=device)
         self.cross_attention = Cross_Attention_Model(cfg, device)
+        self.regressor = FCN_regression(cfg)
 
         self.device = device
 
     def forward(self, prev_input, curr_input):
         prev_frame_encoding = self.backbone(prev_input['pointcloud'].to(self.device)).squeeze(3)
         curr_frame_encoding = self.backbone(curr_input['pointcloud'].to(self.device)).squeeze(3)
+        attention_features = self.cross_attention(prev_frame_encoding.transpose(1,2), curr_frame_encoding.transpose(1,2))
+        T = self.regressor(attention_features)
 
-        T = self.cross_attention(prev_frame_encoding.transpose(1,2), curr_frame_encoding.transpose(1,2))
         return T
 
 if __name__=="__main__":

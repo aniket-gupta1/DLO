@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="f25b4e86-a6fd-4121-90b3-f6684aebd6d5" name="Discovery">
+        <fileTransfer rootFolder="/home/gupta.anik" accessType="SFTP" host="xfer.discovery.neu.edu" port="22" sshConfigId="092ce053-ee09-4d32-9772-ef1579867d3c" sshConfig="gupta.anik@xfer.discovery.neu.edu:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

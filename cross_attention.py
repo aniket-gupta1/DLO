@@ -165,20 +165,6 @@ class PositionalEncoding(nn.Module):
 
         return x
 
-class FCN_regression(nn.Module):
-    def __init__(self, cfg):
-        super(FCN_regression, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(cfg.input_dim, cfg.input_dim),
-            nn.ReLU(),
-            nn.Linear(cfg.input_dim, cfg.input_dim),
-            nn.ReLU(),
-            nn.Linear(cfg.input_dim, cfg.output_dim)
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
 class Cross_Attention_Model(nn.Module):
     def __init__(self, cfg, device):
         super(Cross_Attention_Model, self).__init__()
@@ -186,7 +172,6 @@ class Cross_Attention_Model(nn.Module):
         self.pe = PositionalEncoding(cfg.input_dim, device)
         self.encoder = Cross_Encoder(cfg.dim_Q, cfg.dim_K, cfg.dim_V, cfg.num_heads, cfg.ff_dim, cfg.num_cells,
                                      cfg.dropout)
-        self.regressor = FCN_regression(cfg)
         # self.decoder = TransformerDecoder(dim_Q, dim_k, dim_V, num_heads, ff_dim, num_cells, dropout)
         # self.output = nn.Linear(dim_Q, target)
 
@@ -198,10 +183,7 @@ class Cross_Attention_Model(nn.Module):
         feature_vector = torch.cat((f_src, f_tgt), dim=1)
         feature_vector = torch.mean(feature_vector, dim=1)
 
-        transformation = self.regressor(feature_vector)
-
-        return transformation
-
+        return feature_vector
 
 def _create_mask(src, tgt, pad_token=0):
     def _subsequent_mask(size):

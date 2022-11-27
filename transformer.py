@@ -252,7 +252,7 @@ class Transformer_Model(nn.Module):
                                            cfg.num_cells, cfg.dropout)
         self.decoder = TransformerDecoder(cfg.dim_Q, cfg.dim_K, cfg.dim_V, cfg.num_heads, cfg.ff_dim,
                                            cfg.num_cells, cfg.dropout)
-        self.output = nn.Linear(cfg.dim_Q, 12)
+        # self.output = nn.Linear(cfg.dim_Q, 12)
 
     def forward(self, src, tgt, src_mask=None, tgt_mask=None):
         x_src = self.pe(src)
@@ -261,9 +261,9 @@ class Transformer_Model(nn.Module):
         encoder_output = self.encoder(x_src, src_mask)
         decoder_output = self.decoder(x_tgt, encoder_output, src_mask, tgt_mask)
 
-        logits = self.output(decoder_output)
+        # logits = self.output(decoder_output)
 
-        return logits
+        return decoder_output
 
 
 if __name__=="__main__":
