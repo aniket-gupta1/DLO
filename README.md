@@ -15,9 +15,10 @@ conda env create -f environment.yml
 conda activate DLO
 ```
 
-Install torch_points_kernels separately. 
+Install torch_points_kernels and lietorch separately. 
 ```
 python3 -m pip install git+https://github.com/aniket-gupta1/torch-points.git
+python3 -m pip install git+https://github.com/princeton-vl/lietorch.git
 ```
 
 ## Train the model

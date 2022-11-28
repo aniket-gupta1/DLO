@@ -19,7 +19,7 @@ def loss_fn(pred, gt):
     pred = SE3(pred)
     gt = SE3(mat_to_quat(gt).type(torch.float32).to(device))
 
-    error = (gt.inv() * pred).inv()
+    error = (gt.inv() * pred).log()
     tr = error[:,0:3].norm(dim=-1)
     ro = error[:,3:6].norm(dim=-1)
 
