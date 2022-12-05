@@ -1,11 +1,11 @@
 
 import torch
 import torch.nn as nn
-from randlanet import RandLANet
-from cross_attention import Cross_Attention_Model
-from transformer import Transformer_Model
+from models.backbone.randlanet import RandLANet
+from models.cross_attention import Cross_Attention_Model
+from models.transformer import Transformer_Model
 import time
-from config import Config
+from config.config import Config
 
 class FCN_regression(nn.Module):
     def __init__(self, cfg):

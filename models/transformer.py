@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from randlanet import RandLANet
+from models.backbone.randlanet import RandLANet
 import math
-from config import Config
+from config.config import Config
 
 class MHA_big(nn.Module):
     def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int):

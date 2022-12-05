@@ -1,3 +1,5 @@
+import os
+
 class Config(object):
     def __init__(self, d):
         super(Config, self).__init__()
@@ -14,8 +16,12 @@ class Config(object):
         self.output_dim = 7
 
         # Dataloader
-        # self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
-        self.root = "/media/aniket/77b12655-2aa3-4049-ac40-36a0a306712a/SemanticKITTI/dataset"
+        if os.getlogin() == 'ngc':
+            self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
+        elif os.getlogin() == 'aniket':
+            self.root = "/media/aniket/77b12655-2aa3-4049-ac40-36a0a306712a/SemanticKITTI/dataset"
+        else:
+            self.root = ""
         self.validation_seq = 8
         self.inbetween_poses = True
         self.form_transformation = True

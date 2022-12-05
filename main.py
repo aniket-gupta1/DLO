@@ -1,16 +1,12 @@
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
-from randlanet import RandLANet
-from cross_attention import Cross_Attention_Model
-from kitti import kitti
-from transformer import Transformer_Model
+from datasets.kitti import kitti
 from torch.utils.tensorboard import SummaryWriter
 import time
-from model import DLO_net
+from models.model import DLO_net
 from lietorch import SE3
-from utils import *
-from config import Config
+from config.config import Config
+from utils.utils import *
 
 def parse_arguments():
     pass
@@ -68,7 +64,7 @@ def train(cfg, device, writer):
     optimizer = torch.optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
                                   betas=(0.9, 0.98), eps=1e-9)
 
-    # loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.MSELoss()
 
     for epoch in range(cfg.num_epochs):
         tic = time.time()
