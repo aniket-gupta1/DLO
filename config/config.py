@@ -13,11 +13,11 @@ class Config(object):
         self.dropout = 0.2
 
         # Output
-        self.output_dim = 7
+        self.output_dim = 6
 
         # Dataloader
         if os.getlogin() == 'ngc':
-            self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
+            self.root = "/home/ngc/SemSeg/Datasets/KITTI_short/dataset"
         elif os.getlogin() == 'aniket':
             self.root = "/media/aniket/77b12655-2aa3-4049-ac40-36a0a306712a/SemanticKITTI/dataset"
         else:
@@ -31,7 +31,13 @@ class Config(object):
         self.weight_decay = 0.0001
 
         # training
-        self.num_epochs = 10
+        self.num_epochs = 100
 
         # model
         self.model_type = "cross_attention"
+
+        self.use_random_sampling = False
+        self.regress_transformation = False
+        self.embed_size = d
+
+        self.downsampled_features = 500

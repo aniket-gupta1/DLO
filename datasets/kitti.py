@@ -14,7 +14,7 @@ class kitti(Dataset):
         self.initial_pose = np.eye(4)
 
         if self.mode=="training":
-            self.sequences = ['{:02d}'.format(i) for i in range(11) if i!=config.validation_seq]
+            self.sequences = ['{:02d}'.format(i) for i in range(1) if i!=config.validation_seq]
         elif self.mode=="validation":
             self.sequences = [config.validation_seq]
         elif self.mode=="test":

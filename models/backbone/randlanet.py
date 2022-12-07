@@ -137,6 +137,8 @@ class LocalFeatureAggregation(nn.Module):
         # knn_output = knn(coords.cpu().contiguous(), coords.cpu().contiguous(), self.num_neighbors)
         knn_output = knn(coords, coords, self.num_neighbors)
 
+        # print("coords (lfa): ", coords.size())
+        # print("features (lfa): ", features.size())
         x = self.mlp1(features)
 
         x = self.lse1(coords, x, knn_output)
@@ -148,11 +150,11 @@ class LocalFeatureAggregation(nn.Module):
         return self.lrelu(self.mlp2(x) + self.shortcut(features))
 
 class RandLANet(nn.Module):
-    def __init__(self, d_in, num_neighbors=4, decimation=4, device=torch.device('cpu')):
+    def __init__(self, d_in, num_neighbors=4, decimation=4, num_features=500, device=torch.device('cpu')):
         super(RandLANet, self).__init__()
-        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.num_neighbors = num_neighbors
         self.decimation = decimation
+        self.num_features = num_features
 
         self.fc_start = nn.Linear(d_in, 8)
         self.bn_start = nn.Sequential(
@@ -182,29 +184,37 @@ class RandLANet(nn.Module):
         N = input.size(1)
         d = self.decimation
 
+
         coords = input[...,:3].clone().cpu()
         x = self.fc_start(input).transpose(-2,-1).unsqueeze(-1)
         x = self.bn_start(x) # shape (B, d, N, 1)
 
         decimation_ratio = 1
 
-        x_stack = []
-
         permutation = torch.randperm(N)
         coords = coords[:,permutation]
         x = x[:,:,permutation]
 
-        for lfa in self.encoder:
+
+        for i, lfa in enumerate(self.encoder):
             # at iteration i, x.shape = (B, N//(d**i), d_in)
+            # print("x before lfa: ", x.size())
             x = lfa(coords[:,:N//decimation_ratio], x)
-            x_stack.append(x.clone())
+            # print("x after lfa: ", x.size())
+
             decimation_ratio *= d
-            x = x[:,:,:N//decimation_ratio]
+            if i==len(self.encoder)-1:
+                x = x[:,:,:self.num_features]
+            else:
+                x = x[:,:,:N//decimation_ratio]
+            # print("x after decimation: ", x.size())
 
+        sampled_coords = coords[:,:self.num_features].to(self.device)
+        # print(sampled_coords.size())
 
-        y = self.mlp(x)
+        y = self.mlp(x).transpose(1,2).squeeze(3)
 
-        return y
+        return y, sampled_coords
 
 
 if __name__ == '__main__':
@@ -213,8 +223,8 @@ if __name__ == '__main__':
     d_in = 4
     cloud = 1000*torch.randn(1, 2**17, d_in).to(device)
     print(cloud.size())
-    model = RandLANet(d_in, 16, 4, device)
+    model = RandLANet(d_in, 16, 4, 500, device)
     model.to(device)
 
-    pred = model(cloud)
+    pred, coords = model(cloud)
     print(pred.size())

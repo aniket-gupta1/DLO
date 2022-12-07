@@ -4,24 +4,43 @@ from datasets.kitti import kitti
 from torch.utils.tensorboard import SummaryWriter
 import time
 from models.model import DLO_net
-from lietorch import SE3
+from lietorch import SE3, SO3
 from config.config import Config
 from utils.utils import *
+from scipy.spatial.transform import Rotation
+import roma
 
 def parse_arguments():
     pass
 
-def loss_fn(pred, gt):
-    pred = SE3(pred)
-    gt = SE3(mat_to_quat(gt).type(torch.float32).to(device))
+def loss_fn_so3(pred, gt):
+    quat = torch.Tensor(Rotation.from_matrix(gt[:, :3, :3]).as_quat()).to(device)
+    R_gt = SO3.InitFromVec(quat)
+    R_pred = SO3.exp(pred[:,3:])
+    dR = R_gt.inv() * R_pred
+    ro_loss = dR.log().norm(dim=-1).sum()
 
-    error = (gt.inv() * pred).log()
-    tr = error[:,0:3].norm(dim=-1)
-    ro = error[:,3:6].norm(dim=-1)
-
-    loss = tr.mean() + ro.mean()
+    gt = torch.Tensor(gt).to(device)
+    tr_loss = (gt[:,:3,3] - pred[:,:3])**2
+    loss = ro_loss + tr_loss.sum()
 
     return loss
+
+def loss_fn_tf(pred, gt):
+    gt = gt.type(torch.float32).cuda()
+    # raise ValueError
+    quat = roma.rotmat_to_unitquat(gt[:,:3,:3])
+    R_gt = SO3.InitFromVec(quat)
+    rot_vec_pred = roma.rotmat_to_rotvec(pred[:,:3,:3])
+    R_pred = SO3.exp(rot_vec_pred)
+    dR = R_gt.inv()*R_pred
+    ro_loss = dR.log().norm(dim=-1).sum()
+
+    tr_loss = (gt[:, :3, 3] - pred[:, :3, 3]) ** 2
+    loss = ro_loss + tr_loss.sum()
+
+    return loss
+
 
 def train_epoch(model, optimizer, dataloader,  loss_fn, writer):
     global prev_data
@@ -36,7 +55,7 @@ def train_epoch(model, optimizer, dataloader,  loss_fn, writer):
         # print(data['seq'])
         #
         # time.sleep(200000)
-        print(f"Frame {data['frame_num']} has pointcloud of shape {data['pointcloud'].shape}")
+        # print(f"Frame {data['frame_num']} has pointcloud of shape {data['pointcloud'].shape}")
 
         if data['frame_num']==0:
             prev_data = data
@@ -64,11 +83,11 @@ def train(cfg, device, writer):
     optimizer = torch.optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
                                   betas=(0.9, 0.98), eps=1e-9)
 
-    loss_fn = torch.nn.MSELoss()
+    # loss_fn = torch.nn.MSELoss()
 
     for epoch in range(cfg.num_epochs):
         tic = time.time()
-        loss = train_epoch(net, optimizer, dataloader, loss_fn, writer)
+        loss = train_epoch(net, optimizer, dataloader, loss_fn_tf, writer)
         writer.add_scalar("Loss", loss, epoch)
         print("===========================================================")
         print(f"Epoch: {epoch} || Loss: {loss} || Time: {time.time()-tic}")

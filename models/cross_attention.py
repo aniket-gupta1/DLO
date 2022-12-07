@@ -180,10 +180,14 @@ class Cross_Attention_Model(nn.Module):
         tgt = self.pe(tgt)
 
         f_src, f_tgt = self.encoder(src, tgt, src_mask, tgt_mask)
-        feature_vector = torch.cat((f_src, f_tgt), dim=1)
-        feature_vector = torch.mean(feature_vector, dim=1)
+        # print(f_src.size())
+        # print(f_tgt.size())
 
-        return feature_vector
+        # feature_vector = torch.cat((f_src, f_tgt), dim=1)
+        # feature_vector = torch.mean(feature_vector, dim=1)
+        # print(feature_vector.size())
+
+        return f_src, f_tgt
 
 def _create_mask(src, tgt, pad_token=0):
     def _subsequent_mask(size):
