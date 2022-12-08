@@ -41,6 +41,17 @@ def loss_fn_tf(pred, gt):
 
     return loss
 
+def loss_fn(pred, gt, pc):
+    pc = pc.squeeze().transpose(1,0).cuda()
+    gt = gt.type(torch.float32).cuda()
+
+    pc_tf_pred = torch.add(torch.matmul(pred[:,:3,:3],pc), pred[:,:3,3].unsqueeze(-1).expand(-1, -1, pc.size(-1)))
+    pc_tf_gt = torch.add(torch.matmul(gt[:,:3,:3],pc), gt[:,:3,3].unsqueeze(-1).expand(-1, -1, pc.size(-1)))
+
+    # loss = torch.nn.functional.mse_loss(pc_tf_gt, pc_tf_pred)
+    loss = torch.mean(torch.abs(pc_tf_gt - pc_tf_pred))
+
+    return loss
 
 def train_epoch(model, optimizer, dataloader,  loss_fn, writer):
     global prev_data
@@ -64,7 +75,7 @@ def train_epoch(model, optimizer, dataloader,  loss_fn, writer):
             gt = data['pose']
             T = model(prev_data, data)
 
-            loss = loss_fn(T, gt)
+            loss = loss_fn(T, gt, data['pointcloud'])
             loss.backward(retain_graph=False)
             optimizer.step()
 
@@ -87,7 +98,7 @@ def train(cfg, device, writer):
 
     for epoch in range(cfg.num_epochs):
         tic = time.time()
-        loss = train_epoch(net, optimizer, dataloader, loss_fn_tf, writer)
+        loss = train_epoch(net, optimizer, dataloader, loss_fn, writer)
         writer.add_scalar("Loss", loss, epoch)
         print("===========================================================")
         print(f"Epoch: {epoch} || Loss: {loss} || Time: {time.time()-tic}")
