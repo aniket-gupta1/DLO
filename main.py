@@ -90,15 +90,38 @@ def train(cfg, device, writer):
                     form_transformation = cfg.form_transformation)
     dataloader = DataLoader(dataset, batch_size=1)
 
-    net = DLO_net(cfg, device).to(device)
-    optimizer = torch.optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
+    model = DLO_net(cfg, device).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
                                   betas=(0.9, 0.98), eps=1e-9)
 
     # loss_fn = torch.nn.MSELoss()
-
+    step=0
     for epoch in range(cfg.num_epochs):
         tic = time.time()
-        loss = train_epoch(net, optimizer, dataloader, loss_fn, writer)
+        # loss = train_epoch(net, optimizer, dataloader, loss_fn, writer)
+
+        model.train()
+
+        losses = 0
+
+        for index, data in enumerate(dataloader):
+            if data['frame_num'] == 0:
+                prev_data = data
+            else:
+                optimizer.zero_grad()
+                gt = data['pose']
+                T = model(prev_data, data)
+
+                loss = loss_fn(T, gt, data['pointcloud'])
+                loss.backward(retain_graph=False)
+                optimizer.step()
+
+                losses += loss.item()
+                step+=1
+                writer.add_scalar("Batch Loss/train", loss, step)
+                print(f"Batch_index: {index} || Loss: {loss}")
+
+        loss = losses / (len(dataloader) - 1)
         writer.add_scalar("Loss", loss, epoch)
         print("===========================================================")
         print(f"Epoch: {epoch} || Loss: {loss} || Time: {time.time()-tic}")

@@ -31,7 +31,7 @@ class Config(object):
         self.weight_decay = 0.0001
 
         # training
-        self.num_epochs = 100
+        self.num_epochs = 10000
 
         # model
         self.model_type = "cross_attention"
