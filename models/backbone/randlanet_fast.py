@@ -2,42 +2,29 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pt_utils
+from typing import List, Tuple
 import numpy as np
-from sklearn.metrics import confusion_matrix
-
+import pickle
 
 class Network(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self):
         super().__init__()
-        self.config = config
 
-        self.fc0 = pt_utils.Conv1d(3, 8, kernel_size=1, bn=True)
+        self.fc0 = Conv1d(3, 8, kernel_size=1, bn=True)
 
         self.dilated_res_blocks = nn.ModuleList()
         d_in = 8
-        for i in range(self.config.num_layers):
-            d_out = self.config.d_out[i]
+
+        d_out_list = [16, 64, 128, 256]
+        for i in range(4):
+            d_out = d_out_list[i]
             self.dilated_res_blocks.append(Dilated_res_block(d_in, d_out))
             d_in = 2 * d_out
 
         d_out = d_in
-        self.decoder_0 = pt_utils.Conv2d(d_in, d_out, kernel_size=(1,1), bn=True)
+        self.decoder_0 = Conv2d(d_in, d_out, kernel_size=(1,1), bn=True)
 
-        self.decoder_blocks = nn.ModuleList()
-        for j in range(self.config.num_layers):
-            if j < 3:
-                d_in = d_out + 2 * self.config.d_out[-j-2]
-                d_out = 2 * self.config.d_out[-j-2]
-            else:
-                d_in = 4 * self.config.d_out[-4]
-                d_out = 2 * self.config.d_out[-4]
-            self.decoder_blocks.append(pt_utils.Conv2d(d_in, d_out, kernel_size=(1,1), bn=True))
-
-        self.fc1 = pt_utils.Conv2d(d_out, 64, kernel_size=(1,1), bn=True)
-        self.fc2 = pt_utils.Conv2d(64, 32, kernel_size=(1,1), bn=True)
-        self.dropout = nn.Dropout(0.5)
-        self.fc3 = pt_utils.Conv2d(32, self.config.num_classes, kernel_size=(1,1), bn=False, activation=None)
 
     def forward(self, end_points):
 
@@ -48,7 +35,7 @@ class Network(nn.Module):
 
         # ###########################Encoder############################
         f_encoder_list = []
-        for i in range(self.config.num_layers):
+        for i in range(4):
             f_encoder_i = self.dilated_res_blocks[i](features, end_points['xyz'][i], end_points['neigh_idx'][i])
 
             f_sampled_i = self.random_sample(f_encoder_i, end_points['sub_idx'][i])
@@ -60,23 +47,6 @@ class Network(nn.Module):
 
         features = self.decoder_0(f_encoder_list[-1])
 
-        # ###########################Decoder############################
-        f_decoder_list = []
-        for j in range(self.config.num_layers):
-            f_interp_i = self.nearest_interpolation(features, end_points['interp_idx'][-j - 1])
-            f_decoder_i = self.decoder_blocks[j](torch.cat([f_encoder_list[-j - 2], f_interp_i], dim=1))
-
-            features = f_decoder_i
-            f_decoder_list.append(f_decoder_i)
-        # ###########################Decoder############################
-
-        features = self.fc1(features)
-        features = self.fc2(features)
-        features = self.dropout(features)
-        features = self.fc3(features)
-        f_out = features.squeeze(3)
-
-        end_points['logits'] = f_out
         return end_points
 
     @staticmethod
@@ -96,80 +66,15 @@ class Network(nn.Module):
         pool_features = pool_features.max(dim=3, keepdim=True)[0]  # batch*channel*npoints*1
         return pool_features
 
-    @staticmethod
-    def nearest_interpolation(feature, interp_idx):
-        """
-        :param feature: [B, N, d] input features matrix
-        :param interp_idx: [B, up_num_points, 1] nearest neighbour index
-        :return: [B, up_num_points, d] interpolated features matrix
-        """
-        feature = feature.squeeze(dim=3)  # batch*channel*npoints
-        batch_size = interp_idx.shape[0]
-        up_num_points = interp_idx.shape[1]
-        interp_idx = interp_idx.reshape(batch_size, up_num_points)
-        interpolated_features = torch.gather(feature, 2, interp_idx.unsqueeze(1).repeat(1,feature.shape[1],1))
-        interpolated_features = interpolated_features.unsqueeze(3)  # batch*channel*npoints*1
-        return interpolated_features
-
-
-
-def compute_acc(end_points):
-
-    logits = end_points['valid_logits']
-    labels = end_points['valid_labels']
-    logits = logits.max(dim=1)[1]
-    acc = (logits == labels).sum().float() / float(labels.shape[0])
-    end_points['acc'] = acc
-    return acc, end_points
-
-
-class IoUCalculator:
-    def __init__(self, cfg):
-        self.gt_classes = [0 for _ in range(cfg.num_classes)]
-        self.positive_classes = [0 for _ in range(cfg.num_classes)]
-        self.true_positive_classes = [0 for _ in range(cfg.num_classes)]
-        self.cfg = cfg
-
-    def add_data(self, end_points):
-        logits = end_points['valid_logits']
-        labels = end_points['valid_labels']
-        pred = logits.max(dim=1)[1]
-        pred_valid = pred.detach().cpu().numpy()
-        labels_valid = labels.detach().cpu().numpy()
-
-        val_total_correct = 0
-        val_total_seen = 0
-
-        correct = np.sum(pred_valid == labels_valid)
-        val_total_correct += correct
-        val_total_seen += len(labels_valid)
-
-        conf_matrix = confusion_matrix(labels_valid, pred_valid, np.arange(0, self.cfg.num_classes, 1))
-        self.gt_classes += np.sum(conf_matrix, axis=1)
-        self.positive_classes += np.sum(conf_matrix, axis=0)
-        self.true_positive_classes += np.diagonal(conf_matrix)
-
-    def compute_iou(self):
-        iou_list = []
-        for n in range(0, self.cfg.num_classes, 1):
-            if float(self.gt_classes[n] + self.positive_classes[n] - self.true_positive_classes[n]) != 0:
-                iou = self.true_positive_classes[n] / float(self.gt_classes[n] + self.positive_classes[n] - self.true_positive_classes[n])
-                iou_list.append(iou)
-            else:
-                iou_list.append(0.0)
-        mean_iou = sum(iou_list) / float(self.cfg.num_classes)
-        return mean_iou, iou_list
-
-
 
 class Dilated_res_block(nn.Module):
     def __init__(self, d_in, d_out):
         super().__init__()
 
-        self.mlp1 = pt_utils.Conv2d(d_in, d_out//2, kernel_size=(1,1), bn=True)
+        self.mlp1 = Conv2d(d_in, d_out//2, kernel_size=(1,1), bn=True)
         self.lfa = Building_block(d_out)
-        self.mlp2 = pt_utils.Conv2d(d_out, d_out*2, kernel_size=(1, 1), bn=True, activation=None)
-        self.shortcut = pt_utils.Conv2d(d_in, d_out*2, kernel_size=(1,1), bn=True, activation=None)
+        self.mlp2 = Conv2d(d_out, d_out*2, kernel_size=(1, 1), bn=True, activation=None)
+        self.shortcut = Conv2d(d_in, d_out*2, kernel_size=(1,1), bn=True, activation=None)
 
     def forward(self, feature, xyz, neigh_idx):
         f_pc = self.mlp1(feature)  # Batch*channel*npoints*1
@@ -178,14 +83,13 @@ class Dilated_res_block(nn.Module):
         shortcut = self.shortcut(feature)
         return F.leaky_relu(f_pc+shortcut, negative_slope=0.2)
 
-
 class Building_block(nn.Module):
     def __init__(self, d_out):  #  d_in = d_out//2
         super().__init__()
-        self.mlp1 = pt_utils.Conv2d(10, d_out//2, kernel_size=(1,1), bn=True)
+        self.mlp1 = Conv2d(10, d_out//2, kernel_size=(1,1), bn=True)
         self.att_pooling_1 = Att_pooling(d_out, d_out//2)
 
-        self.mlp2 = pt_utils.Conv2d(d_out//2, d_out//2, kernel_size=(1, 1), bn=True)
+        self.mlp2 = Conv2d(d_out//2, d_out//2, kernel_size=(1, 1), bn=True)
         self.att_pooling_2 = Att_pooling(d_out, d_out)
 
     def forward(self, xyz, feature, neigh_idx):  # feature: Batch*channel*npoints*1
@@ -224,12 +128,11 @@ class Building_block(nn.Module):
         features = features.reshape(batch_size, num_points, neighbor_idx.shape[-1], d)  # batch*npoint*nsamples*channel
         return features
 
-
 class Att_pooling(nn.Module):
     def __init__(self, d_in, d_out):
         super().__init__()
         self.fc = nn.Conv2d(d_in, d_in, (1, 1), bias=False)
-        self.mlp = pt_utils.Conv2d(d_in, d_out, kernel_size=(1,1), bn=True)
+        self.mlp = Conv2d(d_in, d_out, kernel_size=(1,1), bn=True)
 
     def forward(self, feature_set):
 
@@ -240,43 +143,144 @@ class Att_pooling(nn.Module):
         f_agg = self.mlp(f_agg)
         return f_agg
 
+class _ConvBase(nn.Sequential):
 
-def compute_loss(end_points, cfg):
+    def __init__(self,in_size,out_size,kernel_size,stride,padding,activation,bn,init,conv=None,batch_norm=None,
+                 bias=True,preact=False,name="",instance_norm=False,instance_norm_func=None):
+        super().__init__()
 
-    logits = end_points['logits']
-    labels = end_points['labels']
+        bias = bias and (not bn)
+        conv_unit = conv(
+            in_size,
+            out_size,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=bias
+        )
+        init(conv_unit.weight)
+        if bias:
+            nn.init.constant_(conv_unit.bias, 0)
 
-    logits = logits.transpose(1, 2).reshape(-1, cfg.num_classes)
-    labels = labels.reshape(-1)
+        if bn:
+            if not preact:
+                bn_unit = batch_norm(out_size)
+            else:
+                bn_unit = batch_norm(in_size)
+        if instance_norm:
+            if not preact:
+                in_unit = instance_norm_func(out_size, affine=False, track_running_stats=False)
+            else:
+                in_unit = instance_norm_func(in_size, affine=False, track_running_stats=False)
 
-    # Boolean mask of points that should be ignored
-    ignored_bool = labels == 0
-    for ign_label in cfg.ignored_label_inds:
-        ignored_bool = ignored_bool | (labels == ign_label)
+        if preact:
+            if bn:
+                self.add_module(name + 'bn', bn_unit)
 
-    # Collect logits and labels that are not ignored
-    valid_idx = ignored_bool == 0
-    valid_logits = logits[valid_idx, :]
-    valid_labels_init = labels[valid_idx]
+            if activation is not None:
+                self.add_module(name + 'activation', activation)
 
-    # Reduce label values in the range of logit shape
-    reducing_list = torch.range(0, cfg.num_classes).long().cuda()
-    inserted_value = torch.zeros((1,)).long().cuda()
-    for ign_label in cfg.ignored_label_inds:
-        reducing_list = torch.cat([reducing_list[:ign_label], inserted_value, reducing_list[ign_label:]], 0)
-    valid_labels = torch.gather(reducing_list, 0, valid_labels_init)
-    loss = get_loss(valid_logits, valid_labels, cfg.class_weights)
-    end_points['valid_logits'], end_points['valid_labels'] = valid_logits, valid_labels
-    end_points['loss'] = loss
-    return loss, end_points
+            if not bn and instance_norm:
+                self.add_module(name + 'in', in_unit)
+
+        self.add_module(name + 'conv', conv_unit)
+
+        if not preact:
+            if bn:
+                self.add_module(name + 'bn', bn_unit)
+
+            if activation is not None:
+                self.add_module(name + 'activation', activation)
+
+            if not bn and instance_norm:
+                self.add_module(name + 'in', in_unit)
 
 
-def get_loss(logits, labels, pre_cal_weights):
-    # calculate the weighted cross entropy according to the inverse frequency
-    class_weights = torch.from_numpy(pre_cal_weights).float().cuda()
-    # one_hot_labels = F.one_hot(labels, self.config.num_classes)
+class _BNBase(nn.Sequential):
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='none')
-    output_loss = criterion(logits, labels)
-    output_loss = output_loss.mean()
-    return output_loss
+    def __init__(self, in_size, batch_norm=None, name=""):
+        super().__init__()
+        self.add_module(name + "bn", batch_norm(in_size, eps=1e-6, momentum=0.99))
+
+        nn.init.constant_(self[0].weight, 1.0)
+        nn.init.constant_(self[0].bias, 0)
+
+
+class BatchNorm1d(_BNBase):
+
+    def __init__(self, in_size: int, *, name: str = ""):
+        super().__init__(in_size, batch_norm=nn.BatchNorm1d, name=name)
+
+
+class BatchNorm2d(_BNBase):
+
+    def __init__(self, in_size: int, name: str = ""):
+        super().__init__(in_size, batch_norm=nn.BatchNorm2d, name=name)
+
+
+class Conv1d(_ConvBase):
+
+    def __init__(self,in_size: int,out_size: int,*,kernel_size: int = 1,stride: int = 1,padding: int = 0,
+                 activation=nn.LeakyReLU(negative_slope=0.2, inplace=True),bn: bool = False,init=nn.init.kaiming_normal_,
+                 bias: bool = True,preact: bool = False,name: str = "",instance_norm=False):
+        super().__init__(in_size,out_size,kernel_size,stride,padding,activation,bn,init,conv=nn.Conv1d,
+                         batch_norm=BatchNorm1d,bias=bias,preact=preact,name=name,instance_norm=instance_norm,
+                         instance_norm_func=nn.InstanceNorm1d)
+
+
+class Conv2d(_ConvBase):
+
+    def __init__(self,in_size: int,out_size: int,*,kernel_size: Tuple[int, int] = (1, 1),stride: Tuple[int, int] = (1, 1),
+                 padding: Tuple[int, int] = (0, 0),activation=nn.LeakyReLU(negative_slope=0.2, inplace=True),
+                 bn: bool = False,init=nn.init.kaiming_normal_,bias: bool = True,preact: bool = False,
+                 name: str = "",instance_norm=False):
+        super().__init__(in_size,out_size,kernel_size,stride,padding,activation,bn,init,conv=nn.Conv2d,
+                         batch_norm=BatchNorm2d,bias=bias,preact=preact,name=name,instance_norm=instance_norm,
+                         instance_norm_func=nn.InstanceNorm2d)
+
+
+def crop_pc(points,search_tree, pick_idx):
+    # crop a fixed size point cloud for training
+    center_point = points[pick_idx, :].reshape(1, -1)
+    select_idx = search_tree.query(center_point, k=4096*11)[1][0]
+    select_points = points[select_idx]
+
+    # Get other data
+    for i in range(4):
+        neighbour_idx = DP.knn_search(batch_pc, batch_pc, cfg.k_n)
+        sub_points = batch_pc[:, :batch_pc.shape[1] // cfg.sub_sampling_ratio[i], :]
+        pool_i = neighbour_idx[:, :batch_pc.shape[1] // cfg.sub_sampling_ratio[i], :]
+        up_i = DP.knn_search(sub_points, batch_pc, 1)
+        input_points.append(batch_pc)
+        input_neighbors.append(neighbour_idx)
+        input_pools.append(pool_i)
+        input_up_samples.append(up_i)
+        batch_pc = sub_points
+
+    return select_points, select_idx
+
+
+if __name__=="__main__":
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    pc_path = "/home/ngc/SemSeg/Datasets/KITTI_short/dataset/sequences_0.06/00/velodyne/000000.npy"
+    tree_path = "/home/ngc/SemSeg/Datasets/KITTI_short/dataset/sequences_0.06/00/KDTree/000000.pkl"
+    with open(tree_path, 'rb') as f:
+        search_tree = pickle.load(f)
+    points = np.array(search_tree.data, copy=False)
+
+    pick_idx = np.random.choice(len(points), 1)
+    selected_pc, selected_idx = crop_pc(points, search_tree, pick_idx)
+
+    for i in range(4):
+        neigh
+
+
+    d_in = 3
+    cloud = 1000 * torch.randn(1, d_in, 2 ** 17).to(device)
+    print(cloud.size())
+    model = Network()
+    model.to(device)
+
+    pred, coords = model(cloud)
+    print(pred.size())
