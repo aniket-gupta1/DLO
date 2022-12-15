@@ -18,13 +18,15 @@ class Config(object):
         # Dataloader
         if os.getlogin() == 'ngc':
             self.root = "/home/ngc/SemSeg/Datasets/KITTI_short/dataset"
+            # self.root = "/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset"
         elif os.getlogin() == 'aniket':
             self.root = "/media/aniket/77b12655-2aa3-4049-ac40-36a0a306712a/SemanticKITTI/dataset"
         else:
             self.root = ""
         self.validation_seq = 8
-        self.inbetween_poses = True
-        self.form_transformation = True
+        self.inbetween_poses = False
+        self.form_transformation = False
+        self.downsample = False
 
         # Optimizer
         self.lr = 0.0001
@@ -41,3 +43,12 @@ class Config(object):
         self.embed_size = d
 
         self.downsampled_features = 500
+
+        # Voxel subsampling
+        self.voxel_size1 = 0.5
+        self.voxel_size2 = 1.5
+        self.use_voxel_sampling = False
+
+        # Eval
+        self.eval_time = 1
+

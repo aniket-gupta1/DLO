@@ -8,6 +8,7 @@ import time
 from utils.utils import compute_rigid_transform
 import numpy as np
 from config.config import Config
+from models.backbone.classical_techniques import *
 
 class FCN_regression(nn.Module):
     def __init__(self, cfg):
@@ -80,9 +81,13 @@ class DLO_net_single(nn.Module):
 class DLO_net(nn.Module):
     def __init__(self, cfg, device):
         super(DLO_net, self).__init__()
+        self.cfg = cfg
+
         if cfg.use_random_sampling:
             self.backbone = None
             self.fc = nn.Linear(3, 512)
+        elif cfg.use_voxel_sampling:
+            self.backbone = voxel_subsampling(cfg)
         else:
             self.backbone = RandLANet(d_in=3, num_neighbors=16, decimation=4,
                                       num_features=cfg.downsampled_features, device=device)
@@ -99,8 +104,14 @@ class DLO_net(nn.Module):
 
     def forward(self, prev_input, curr_input):
         if self.backbone is not None:
+            # tic = time.time()
+            # print(prev_input['pointcloud'].shape)
+            # print(curr_input['pointcloud'].shape)
             prev_frame_encoding, prev_frame_coords = self.backbone(prev_input['pointcloud'].to(self.device))
+            # print(f"Time: {time.time() - tic}")
             curr_frame_encoding, curr_frame_coords = self.backbone(curr_input['pointcloud'].to(self.device))
+        elif self.cfg.use_voxel_sampling:
+            prev_frame_encoding = 4
         else:
             prev_frame_encoding, prev_frame_coords = self.fc(prev_input['pointcloud'][:,np.random.randint(0,
                                         len(prev_input['pointcloud']), 512),:].to(self.device))
@@ -132,6 +143,13 @@ class DLO_net(nn.Module):
 
 
         return T
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
+
 
 if __name__=="__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')

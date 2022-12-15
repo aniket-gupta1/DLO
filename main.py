@@ -9,6 +9,35 @@ from config.config import Config
 from utils.utils import *
 from scipy.spatial.transform import Rotation
 import roma
+import os
+import open3d as o3d
+
+
+def check_correctness(prev, curr):
+    print(curr['pose'])
+    T = curr['pose'].cpu().numpy().reshape(3,4).astype(np.float32)
+    # T = curr['pose'].cpu().numpy().squeeze().astype(np.float32)
+    pc1 = prev['pointcloud'].cpu().numpy().squeeze().astype(np.float32)
+    pc2 = curr['pointcloud'].cpu().numpy().squeeze().astype(np.float32)
+
+    print(type(pc1))
+    print(pc1.shape)
+    print(pc2.shape)
+    print(T[:3,3])
+    # pts =  T[:3,:3] @ pc2.T + np.expand_dims(T[:3, 3], -1)
+    pts =  T[:3,:3] @ pc2.T + np.array([[T[2,3]], [-T[0,3]], [T[1,3]]])
+    print(type(pts))
+    print(pts.shape)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pts.T)
+
+    pcd1 = o3d.geometry.PointCloud()
+    pcd1.points = o3d.utility.Vector3dVector(pc1)
+
+    o3d.visualization.draw_geometries([pcd, pcd1])
+
+    return False
+
 
 def parse_arguments():
     pass
@@ -94,6 +123,8 @@ def train(cfg, device, writer):
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
                                   betas=(0.9, 0.98), eps=1e-9)
 
+    # try:
+
     # loss_fn = torch.nn.MSELoss()
     step=0
     for epoch in range(cfg.num_epochs):
@@ -105,9 +136,14 @@ def train(cfg, device, writer):
         losses = 0
 
         for index, data in enumerate(dataloader):
+            tic2 = time.time()
+
+
             if data['frame_num'] == 0:
                 prev_data = data
             else:
+                if not check_correctness(prev_data, data):
+                    raise ValueError
                 optimizer.zero_grad()
                 gt = data['pose']
                 T = model(prev_data, data)
@@ -121,11 +157,25 @@ def train(cfg, device, writer):
                 writer.add_scalar("Batch Loss/train", loss, step)
                 print(f"Batch_index: {index} || Loss: {loss}")
 
+            print("Time: ", time.time()-tic2)
+
         loss = losses / (len(dataloader) - 1)
         writer.add_scalar("Loss", loss, epoch)
         print("===========================================================")
         print(f"Epoch: {epoch} || Loss: {loss} || Time: {time.time()-tic}")
         print("===========================================================")
+
+        if epoch % cfg.eval_time == 0:
+            path = "../weights"
+            if os.path.exists(path):
+                model.save(os.path.join(path, f"epoch_{epoch}.pth"))
+                model.save(os.path.join(path, f"epoch_latest.pth"))
+            else:
+                os.makedirs(path)
+                # model.eval()
+    # except Exception as e:
+    #     print(e)
+    #     model.save(os.path.join("../weights", f"epoch_latest.pth"))
 
 if __name__=="__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')

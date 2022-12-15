@@ -2,12 +2,14 @@ import time
 import torch
 from torch.utils.data import Dataset
 import os
+import open3d as o3d
 import numpy as np
 
 class kitti(Dataset):
     def __init__(self, config, mode="training", inbetween_poses=False, form_transformation=False):
         super(kitti, self).__init__()
         self.root = config.root
+        self.downsample = config.downsample
         self.mode = mode
         self.form_transformation = form_transformation
         self.inbetween_poses = inbetween_poses
@@ -46,7 +48,7 @@ class kitti(Dataset):
 
     def _pcread(self, path):
         frame_points = np.fromfile(path, dtype=np.float32)
-        return frame_points.reshape((-1,4))[:, 0:3]
+        return frame_points.reshape((-1,4))[:100000, 0:3]
 
     def _read_pose(self, file_path):
         pose_list = []
@@ -83,10 +85,26 @@ class kitti(Dataset):
         inbetween_pose = pose @ np.linalg.inv(self.initial_pose)
 
         inbetween_pose = np.reshape(inbetween_pose, (16))
-        # print(f"inbetween shape: {inbetween_pose.shape} === {inbetween_pose[:,:12]}")
 
         self.initial_pose = pose
+
         return inbetween_pose
+
+    def _downsample(self, pts, vs1=0.1, vs2=0.1):
+        """
+        Downsample using voxel grid. Although the downsampled point is the average of all the points in the voxel.
+        :param pts:
+        :param vs1:
+        :param vs2:
+        :return:
+        """
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+
+        # pcd = pcd.voxel_down_sample(voxel_size= vs1)
+
+        return np.array(pcd.voxel_down_sample(voxel_size = vs2).points).astype(np.float32)
+
 
     def __getitem__(self, index):
         if self.mode=="training" or self.mode=="validation":
@@ -97,9 +115,14 @@ class kitti(Dataset):
 
         data = {}
 
-        data['pointcloud'] = torch.from_numpy(self._pcread(pc_path))
+        if self.downsample:
+            data['pointcloud'] = torch.from_numpy(self._downsample(self._pcread(pc_path)))
+        else:
+            data['pointcloud'] = torch.from_numpy(self._pcread(pc_path))
         data['seq'] = seq
         data['frame_num'] = int(pc_path[-10:-4])
+
+
 
         if self.form_transformation and self.inbetween_poses:
             data['pose'] = np.reshape(self._inbetween_pose(pose), (4,4))
