@@ -24,8 +24,8 @@ class Config(object):
         else:
             self.root = ""
         self.validation_seq = 8
-        self.inbetween_poses = False
-        self.form_transformation = False
+        self.inbetween_poses = True
+        self.form_transformation = True
         self.downsample = False
 
         # Optimizer

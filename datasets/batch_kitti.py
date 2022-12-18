@@ -24,29 +24,47 @@ class kitti(Dataset):
         else:
             raise ValueError(f"Unknown mode{self.mode} (Correct modes: training, test, validation)")
 
-        self.frames = {}
-        self.poses = {}
+        self.poses_wrt_world = {}
+        self.poses_t2wt1 = {}
         self.data_list = []
         for seq in self.sequences:
-            velo_path = os.path.join(self.root, 'sequences', seq, 'velodyne')
-            self.frames[seq] = np.sort([vf[:-4] for vf in os.listdir(velo_path) if vf.endswith('.bin')])
-
+            # 1: Get inbetween pose
+            # 1.1: Read all the poses from the file
             if self.mode=="training" or self.mode=="validation":
                 pose_path = os.path.join(self.root, 'poses') + f"/{seq}.txt"
-                self.poses[seq] = self._read_pose(pose_path)
+                self.poses_wrt_world[seq] = self._read_pose(pose_path)
 
+            # 1.2: Update the relative poses
+            self.get_relative_pose()
+
+            # 2. Get the pc pairs
+            # 2.1: Read all the pc's
+            velo_path = os.path.join(self.root, 'sequences', seq, 'velodyne')
             for i, vf in enumerate(sorted(os.listdir(velo_path))):
-                if vf.endswith('.bin'):
-                    vf_path = os.path.join(self.root, 'sequences', seq, 'velodyne', vf)
-                    data = [seq, vf_path]
+                if i == 0 and vf.endswith('.bin'):
+                    vf_path1 = os.path.join(self.root, 'sequences', seq, 'velodyne', vf)
+                elif vf.endswith('.bin'):
+                    vf_path2 = os.path.join(self.root, 'sequences', seq, 'velodyne', vf)
+                    data = [vf_path1, vf_path2]
+                    vf_path1 = vf_path2
 
                     if self.mode=="training" or self.mode=="validation":
-                        pose = self.poses[seq][i]
+                        pose = self.poses_t2wt1[seq][i-1]
                         data.append(pose)
 
                     self.data_list.append(data)
+    def get_relative_pose(self):
+        initial_pose = np.eye(4)
 
-        self.last_pc = None
+        for seq in self.sequences:
+            self.poses_t2wt1[seq] = []
+            for i, pose in enumerate(self.poses_wrt_world[seq]):
+                if i==0:
+                    continue
+                else:
+                    pose_mat = np.reshape(pose, (4,4))
+                    self.poses_t2wt1[seq].append(pose_mat @ np.linalg.inv(initial_pose))
+                    initial_pose = pose_mat
 
     def _pcread(self, path):
         frame_points = np.fromfile(path, dtype=np.float32)
@@ -67,31 +85,6 @@ class kitti(Dataset):
                 pose_list.append(T)
         return pose_list
 
-    def _read_pose_mat(self, file_path):
-        pose_list = []
-        with open(file_path) as file:
-            while True:
-                line = file.readline()
-
-                if not line:
-                    break
-
-                line = np.fromstring(line, dtype=np.float64, sep=' ')
-                T = np.reshape(line, (3,4))
-                pose_list.append(T)
-
-        return pose_list
-
-    def _inbetween_pose(self, pose):
-        pose = np.reshape(pose, (4,4))
-        inbetween_pose = pose @ np.linalg.inv(self.initial_pose)
-
-        inbetween_pose = np.reshape(inbetween_pose, (16))
-        # print(f"inbetween shape: {inbetween_pose.shape} === {inbetween_pose[:,:12]}")
-
-        self.initial_pose = pose
-        return inbetween_pose
-
     def _downsample(self, pts, vs1=0.1, vs2=0.1):
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts)
@@ -102,30 +95,22 @@ class kitti(Dataset):
 
     def __getitem__(self, index):
         if self.mode=="training" or self.mode=="validation":
-            seq, pc_path, pose = self.data_list[index]
+            pc1, pc2, pose = self.data_list[index]
         else:
-            seq, pc_path = self.data_list[index]
+            pc1, pc2 = self.data_list[index]
             pose = None
 
         data = {}
 
         if self.downsample:
-            data['pointcloud'] = torch.from_numpy(self._downsample(self._pcread(pc_path)))
+            data['pc1'] = torch.from_numpy(self._downsample(self._pcread(pc1)))
+            data['pc2'] = torch.from_numpy(self._downsample(self._pcread(pc2)))
         else:
-            data['pointcloud'] = torch.from_numpy(self._pcread(pc_path))
-        data['seq'] = seq
-        data['frame_num'] = int(pc_path[-10:-4])
+            data['pc1'] = torch.from_numpy(self._pcread(pc1))
+            data['pc2'] = torch.from_numpy(self._pcread(pc2))
 
-        if self.form_transformation and self.inbetween_poses:
-            data['pose'] = np.reshape(self._inbetween_pose(pose), (4,4))
-        elif self.form_transformation:
-            data['pose'] = np.reshape(pose, (3,4))
-        elif self.inbetween_poses:
-            data['pose'] = self._inbetween_pose(pose)[:12]
-        else:
-            data['pose'] = pose
-
+        data['pose'] = pose
         return data
 
     def __len__(self):
-        return len(self.data_list)-1
+        return len(self.data_list)

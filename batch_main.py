@@ -1,47 +1,12 @@
-import torch
 from torch.utils.data import DataLoader
 from datasets.batch_kitti import kitti
 from torch.utils.tensorboard import SummaryWriter
 import time
-from models.model import DLO_net
-from lietorch import SE3, SO3
+from models.batch_model import DLO_net
 from config.config import Config
 from utils.utils import *
-from scipy.spatial.transform import Rotation
-import roma
 import os
 
-
-def parse_arguments():
-    pass
-
-def loss_fn_so3(pred, gt):
-    quat = torch.Tensor(Rotation.from_matrix(gt[:, :3, :3]).as_quat()).to(device)
-    R_gt = SO3.InitFromVec(quat)
-    R_pred = SO3.exp(pred[:,3:])
-    dR = R_gt.inv() * R_pred
-    ro_loss = dR.log().norm(dim=-1).sum()
-
-    gt = torch.Tensor(gt).to(device)
-    tr_loss = (gt[:,:3,3] - pred[:,:3])**2
-    loss = ro_loss + tr_loss.sum()
-
-    return loss
-
-def loss_fn_tf(pred, gt):
-    gt = gt.type(torch.float32).cuda()
-    # raise ValueError
-    quat = roma.rotmat_to_unitquat(gt[:,:3,:3])
-    R_gt = SO3.InitFromVec(quat)
-    rot_vec_pred = roma.rotmat_to_rotvec(pred[:,:3,:3])
-    R_pred = SO3.exp(rot_vec_pred)
-    dR = R_gt.inv()*R_pred
-    ro_loss = dR.log().norm(dim=-1).sum()
-
-    tr_loss = (gt[:, :3, 3] - pred[:, :3, 3]) ** 2
-    loss = ro_loss + tr_loss.sum()
-
-    return loss
 
 def loss_fn(pred, gt, pc):
     pc = pc.squeeze().transpose(1,0).cuda()
@@ -55,37 +20,6 @@ def loss_fn(pred, gt, pc):
 
     return loss
 
-def train_epoch(model, optimizer, dataloader,  loss_fn, writer):
-    global prev_data
-    model.train()
-
-    losses = 0
-
-    for index, data in enumerate(dataloader):
-        # print(data['pointcloud'].size())
-        # print(data['pose'])
-        # print(data['frame_num'])
-        # print(data['seq'])
-        #
-        # time.sleep(200000)
-        # print(f"Frame {data['frame_num']} has pointcloud of shape {data['pointcloud'].shape}")
-
-        if data['frame_num']==0:
-            prev_data = data
-        else:
-            optimizer.zero_grad()
-            gt = data['pose']
-            T = model(prev_data, data)
-
-            loss = loss_fn(T, gt, data['pointcloud'])
-            loss.backward(retain_graph=False)
-            optimizer.step()
-
-            losses += loss.item()
-            writer.add_scalar("Batch Loss/train", loss, index)
-            print(f"Batch_index: {index} || Loss: {loss}")
-
-    return losses/(len(dataloader)-1)
 
 def train(cfg, device, writer):
     dataset = kitti(cfg, mode = "training", inbetween_poses = cfg.inbetween_poses,
@@ -111,22 +45,22 @@ def train(cfg, device, writer):
         for index, data in enumerate(dataloader):
             tic2 = time.time()
 
-            print(data['pointcloud'].shape)
-            if data['frame_num'] == 0:
-                prev_data = data
-            else:
-                optimizer.zero_grad()
-                gt = data['pose']
-                T = model(prev_data, data)
+            optimizer.zero_grad()
+            gt = data['pose']
 
-                loss = loss_fn(T, gt, data['pointcloud'])
-                loss.backward(retain_graph=False)
-                optimizer.step()
+            print(data['pc1'].size())
+            print(data['pc2'].size())
 
-                losses += loss.item()
-                step+=1
-                writer.add_scalar("Batch Loss/train", loss, step)
-                print(f"Batch_index: {index} || Loss: {loss}")
+            T = model(data['pc1'], data['pc2'])
+
+            loss = loss_fn(T, gt, data['pc2'])
+            loss.backward(retain_graph=False)
+            optimizer.step()
+
+            losses += loss.item()
+            step+=1
+            writer.add_scalar("Batch Loss/train", loss, step)
+            print(f"Batch_index: {index} || Loss: {loss}")
 
             print("Time: ", time.time()-tic2)
 

@@ -8,7 +8,7 @@ from lietorch import SE3, SO3
 from config.config import Config
 from utils.utils import *
 from scipy.spatial.transform import Rotation
-import roma
+#import roma
 import os
 import open3d as o3d
 
