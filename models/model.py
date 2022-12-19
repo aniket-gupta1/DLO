@@ -53,31 +53,56 @@ class Correspondance_Regressor(nn.Module):
 class DLO_net_single(nn.Module):
     def __init__(self, cfg, device):
         super(DLO_net_single, self).__init__()
-        self.backbone = RandLANet(d_in=3, num_neighbors=16, decimation=4, device=device)
-        self.cross_attention = Cross_Attention_Model(cfg, device)
-        self.regressor = FCN_regression(cfg)
+        self.cfg = cfg
 
-        self.prev_frame_encoding = None
+        if cfg.use_random_sampling:
+            self.backbone = None
+            self.fc = nn.Linear(3, 512)
+        elif cfg.use_voxel_sampling:
+            self.backbone = voxel_subsampling(cfg)
+        else:
+            self.backbone = RandLANet(d_in=3, num_neighbors=16, decimation=4,
+                                      num_features=cfg.downsampled_features, device=device)
+
+        self.cross_attention = Cross_Attention_Model(cfg, device)
+
+        self.regress_T = cfg.regress_transformation
+        if self.regress_T:
+            self.regressor = FCN_regression(cfg)
+        else:
+            self.regressor = Correspondance_Regressor(cfg)
+
         self.device = device
 
-    def forward(self, input):
-        if input['frame_num']==0:
-            self.prev_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).squeeze(3)
-            return torch.Tensor([[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]])
-        else:
-            curr_frame_encoding = self.backbone(input['pointcloud'].to(self.device)).squeeze(3)
-            print(self.prev_frame_encoding)
+        self.prev_frame_encoding = None
+        self.prev_frame_coords = None
 
-            attention_features = self.cross_attention(self.prev_frame_encoding.transpose(1,2),
-                                     curr_frame_encoding.transpose(1,2))
+    def forward(self, curr_input):
+        if curr_input['frame_num']==0:
+            print("True")
+            self.prev_frame_encoding, self.prev_frame_coords = self.backbone(curr_input['pointcloud'].to(self.device))
+            return torch.eye(4)
 
-            T = self.regressor(attention_features)
+        curr_frame_encoding, curr_frame_coords = self.backbone(curr_input['pointcloud'].to(self.device))
 
-            with torch.no_grad():
-                self.prev_frame_encoding = curr_frame_encoding
+        attention_features = self.cross_attention(self.prev_frame_encoding, curr_frame_encoding)
+        src_cp, tgt_cp, src_overlap, tgt_overlap = self.regressor(attention_features[0], attention_features[1])
 
+        src_features = torch.cat((self.prev_frame_coords, tgt_cp), dim=1)
+        tgt_features = torch.cat((curr_frame_coords, src_cp), dim=1)
+        overlap = torch.cat((src_overlap, tgt_overlap), dim=1)
+
+        T = compute_rigid_transform(src_features.squeeze(), tgt_features.squeeze(), overlap.squeeze()).unsqueeze(0)
+
+        self.prev_frame_encoding = curr_frame_encoding.detach()
+        self.prev_frame_coords = curr_frame_coords.detach()
         return T
 
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
 class DLO_net(nn.Module):
     def __init__(self, cfg, device):
         super(DLO_net, self).__init__()

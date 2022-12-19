@@ -24,7 +24,7 @@ def loss_fn(pred, gt, pc):
 def train(cfg, device, writer):
     dataset = kitti(cfg, mode = "training", inbetween_poses = cfg.inbetween_poses,
                     form_transformation = cfg.form_transformation)
-    dataloader = DataLoader(dataset, batch_size=10)
+    dataloader = DataLoader(dataset, batch_size=1)
 
     model = DLO_net(cfg, device).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
@@ -47,9 +47,6 @@ def train(cfg, device, writer):
 
             optimizer.zero_grad()
             gt = data['pose']
-
-            print(data['pc1'].size())
-            print(data['pc2'].size())
 
             T = model(data['pc1'], data['pc2'])
 

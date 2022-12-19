@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch_points_kernels import knn
-# import cpp_wrappers.nearest_neighbors.lib.python.nearest_neighbors as nene
+import cpp_wrappers.nearest_neighbors.lib.python.nearest_neighbors as nene
 # def knn_search(support_pts, query_pts, k):
 #     """KNN search.
 #     Args:
@@ -83,9 +83,9 @@ class LocalSpatialEncoding(nn.Module):
         neighbors = torch.gather(extended_coords, 2, extended_idx) # shape (B, 3, N, K)
         # if USE_CUDA:
         #     neighbors = neighbors.cuda()
-        print("extended_idx: ", extended_idx.size())
-        print("extended_coords: ", extended_coords.size())
-        print("neighbors: ", neighbors.size())
+        # print("extended_idx: ", extended_idx.size())
+        # print("extended_coords: ", extended_coords.size())
+        # print("neighbors: ", neighbors.size())
 
         # relative point position encoding
         concat = torch.cat((
@@ -95,7 +95,7 @@ class LocalSpatialEncoding(nn.Module):
             dist.unsqueeze(-3)
         ), dim=-3).to(self.device)
 
-        print(concat.size())
+        #print(concat.size())
         return torch.cat((
             self.mlp(concat),
             features.expand(B, -1, N, K)
@@ -153,10 +153,10 @@ class LocalFeatureAggregation(nn.Module):
         """
         # knn_output = knn(coords.cpu().contiguous(), coords.cpu().contiguous(), self.num_neighbors)
         # tic = time.time()
-        knn_output = knn(coords, coords, self.num_neighbors)
+        knn_output = knn(coords.cpu().contiguous(), coords.cpu().contiguous(), self.num_neighbors)
         # print("Time knn: ", time.time()-tic)
         # tic = time.time()
-        # knn_output = knn_search(coords, coords, self.num_neighbors)
+        # temp = knn_search(coords, coords, self.num_neighbors)
         # print("Time: ", time.time()-tic)
 
 

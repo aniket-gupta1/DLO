@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from datasets.kitti import kitti
 from torch.utils.tensorboard import SummaryWriter
 import time
-from models.model import DLO_net
+from models.model import DLO_net_single
 from lietorch import SE3, SO3
 from config.config import Config
 from utils.utils import *
@@ -15,7 +15,7 @@ import open3d as o3d
 
 def check_correctness(prev, curr):
     print(curr['pose'])
-    T = curr['pose'].cpu().numpy().reshape(3,4).astype(np.float32)
+    T = curr['pose'].cpu().numpy().reshape(4,4).astype(np.float32)
     # T = curr['pose'].cpu().numpy().squeeze().astype(np.float32)
     pc1 = prev['pointcloud'].cpu().numpy().squeeze().astype(np.float32)
     pc2 = curr['pointcloud'].cpu().numpy().squeeze().astype(np.float32)
@@ -98,11 +98,11 @@ def train_epoch(model, optimizer, dataloader,  loss_fn, writer):
         # print(f"Frame {data['frame_num']} has pointcloud of shape {data['pointcloud'].shape}")
 
         if data['frame_num']==0:
-            prev_data = data
+            T = model(data)
         else:
             optimizer.zero_grad()
             gt = data['pose']
-            T = model(prev_data, data)
+            T = model(data)
 
             loss = loss_fn(T, gt, data['pointcloud'])
             loss.backward(retain_graph=False)
@@ -119,7 +119,7 @@ def train(cfg, device, writer):
                     form_transformation = cfg.form_transformation)
     dataloader = DataLoader(dataset, batch_size=1)
 
-    model = DLO_net(cfg, device).to(device)
+    model = DLO_net_single(cfg, device).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
                                   betas=(0.9, 0.98), eps=1e-9)
 
@@ -140,13 +140,15 @@ def train(cfg, device, writer):
 
 
             if data['frame_num'] == 0:
-                prev_data = data
+                # prev_data = data
+                T = model(data)
             else:
-                if not check_correctness(prev_data, data):
-                    raise ValueError
+                # if not check_correctness(prev_data, data):
+                #     raise ValueError
                 optimizer.zero_grad()
                 gt = data['pose']
-                T = model(prev_data, data)
+                # T = model(prev_data, data)
+                T = model(data)
 
                 loss = loss_fn(T, gt, data['pointcloud'])
                 loss.backward(retain_graph=False)
