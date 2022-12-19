@@ -122,7 +122,7 @@ def train(cfg, device, writer):
     model = DLO_net_single(cfg, device).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
                                   betas=(0.9, 0.98), eps=1e-9)
-
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
     # try:
 
     # loss_fn = torch.nn.MSELoss()
@@ -161,6 +161,7 @@ def train(cfg, device, writer):
 
             print("Time: ", time.time()-tic2)
 
+        scheduler.step()
         loss = losses / (len(dataloader) - 1)
         writer.add_scalar("Loss", loss, epoch)
         print("===========================================================")
