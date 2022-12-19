@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch_points_kernels import knn
-import cpp_wrappers.nearest_neighbors.lib.python.nearest_neighbors as nene
+
 # def knn_search(support_pts, query_pts, k):
 #     """KNN search.
 #     Args:
@@ -20,17 +20,6 @@ import cpp_wrappers.nearest_neighbors.lib.python.nearest_neighbors as nene
 #     dist, idx = torch.cdist(support_pts, query_pts).topk(k)
 #
 #     return idx, dist
-
-def knn_search(support_pts, query_pts, k):
-    """
-    :param support_pts: points you have, B*N1*3
-    :param query_pts: points you want to know the neighbour index, B*N2*3
-    :param k: Number of neighbours in knn search
-    :return: neighbor_idx: neighboring points indexes, B*N2*k
-    """
-
-    neighbor_idx = nene.knn_batch(support_pts, query_pts, k, omp=True)
-    return neighbor_idx.astype(np.int32)
 
 class SharedMLP(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding_mode='zeros',
@@ -80,7 +69,11 @@ class LocalSpatialEncoding(nn.Module):
         # neighbors[b, i, n, k] = coords[b, idx[b, n, k], i] = extended_coords[b, i, extended_idx[b, i, n, k], k]
         extended_idx = idx.unsqueeze(1).expand(B, 3, N, K)
         extended_coords = coords.transpose(-2,-1).unsqueeze(-1).expand(B, 3, N, K)
-        neighbors = torch.gather(extended_coords, 2, extended_idx) # shape (B, 3, N, K)
+        neighbor_coords = torch.gather(extended_coords, 2, extended_idx) # shape (B, 3, N, K)
+
+        expanded_idx = idx.unsqueeze(1).expand(B, features.size(1), N, K).to(self.device)
+        expanded_features = features.expand(B, -1, N, K)
+        neighbor_features = torch.gather(expanded_features, 2, expanded_idx)
         # if USE_CUDA:
         #     neighbors = neighbors.cuda()
         # print("extended_idx: ", extended_idx.size())
@@ -90,15 +83,15 @@ class LocalSpatialEncoding(nn.Module):
         # relative point position encoding
         concat = torch.cat((
             extended_coords,
-            neighbors,
-            extended_coords - neighbors,
+            neighbor_coords,
+            extended_coords - neighbor_coords,
             dist.unsqueeze(-3)
         ), dim=-3).to(self.device)
 
         #print(concat.size())
         return torch.cat((
             self.mlp(concat),
-            features.expand(B, -1, N, K)
+            neighbor_features
         ), dim=-3)
 
 class AttentivePooling(nn.Module):
