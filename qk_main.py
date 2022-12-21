@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from datasets.kitti import kitti
 from torch.utils.tensorboard import SummaryWriter
 import time
-from models.model import DLO_net_single
+from models.qk_model import DLO_net_single
 from lietorch import SE3, SO3
 from config.config import Config
 from utils.utils import *
@@ -78,7 +78,7 @@ def loss_fn(pred, gt, pc):
     pc_tf_gt = torch.add(torch.matmul(gt[:,:3,:3],pc), gt[:,:3,3].unsqueeze(-1).expand(-1, -1, pc.size(-1)))
 
     # loss = torch.nn.functional.mse_loss(pc_tf_gt, pc_tf_pred)
-    loss = torch.mean(torch.abs(pc_tf_gt - pc_tf_pred))
+    loss = torch.mean(torch.abs(pc_tf_gt - pc_tf_pred)).requires_grad_()
 
     return loss
 
@@ -180,38 +180,10 @@ def train(cfg, device, writer):
     #     print(e)
     #     model.save(os.path.join("../weights", f"epoch_latest.pth"))
 
-def eval(cfg, device, writer, path):
-    dataset = kitti(cfg, mode="training", inbetween_poses=cfg.inbetween_poses,
-                    form_transformation=cfg.form_transformation)
-    dataloader = DataLoader(dataset, batch_size=1)
-
-    model = DLO_net_single(cfg, device).to(device)
-    model.load(path)
-    tic = time.time()
-    poses = []
-    for index, data in enumerate(dataloader):
-
-        if data['frame_num'] == 0:
-            T = model(data)
-        else:
-            gt = data['pose']
-            T = model(data)@T
-
-        poses.append(T)
-
-    with open("path.txt", 'w') as f:
-        f.writelines(poses)
-
-    print("===========================================================")
-    print(f"Time: {time.time() - tic}")
-    print("===========================================================")
-
-
 if __name__=="__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     writer = SummaryWriter()
 
     cfg = Config(512)
-    # train(cfg, device, writer)
-    eval(cfg, device, writer, "/home/ngc/epoch_114.pth")
+    train(cfg, device, writer)
     writer.close()

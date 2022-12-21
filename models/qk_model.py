@@ -14,7 +14,7 @@ def softmax_correlation(feat0:torch.Tensor, feat1:torch.Tensor):
 
     correlation = torch.matmul(feat0, feat1.permute(0,2,1))/(d**0.5) #[B, N, N]
     prob = torch.nn.functional.softmax(correlation, dim=-1) #[B, N, N]
-    init_grid = torch.arange(n).float() #[B, N]
+    init_grid = torch.arange(n).float().cuda().requires_grad_() #[B, N]
 
     correspondence = torch.matmul(prob, init_grid) #[B, N]
 
@@ -30,7 +30,7 @@ class DLO_net_single(nn.Module):
 
         self.cross_attention = Cross_Attention_Model(cfg, device)
 
-        self.matcher = Feature_matcher(cfg)
+        # self.matcher = Feature_matcher(cfg)
 
         self.device = device
 
@@ -39,24 +39,30 @@ class DLO_net_single(nn.Module):
 
     def forward(self, curr_input):
         if curr_input['frame_num']==0:
-            print("True")
             self.prev_frame_encoding, self.prev_frame_coords = self.backbone(curr_input['pointcloud'].to(self.device))
             return torch.eye(4)
 
         curr_frame_encoding, curr_frame_coords = self.backbone(curr_input['pointcloud'].to(self.device))
 
         attention_features = self.cross_attention(self.prev_frame_encoding, curr_frame_encoding)
+        # print(attention_features)
+        cp_ind_1t2 = softmax_correlation(attention_features[0], attention_features[1]).long()
+        cp_1t2 = torch.gather(curr_frame_coords, 1, cp_ind_1t2.unsqueeze(-1).expand(-1, -1, curr_frame_coords.size(-1)))
 
-        correspondence = softmax_correlation(attention_features[0], attention_features[1])
+        cp_ind_2t1 = softmax_correlation(attention_features[1], attention_features[0]).long()
+        cp_2t1 = torch.gather(self.prev_frame_coords, 1, cp_ind_2t1.unsqueeze(-1).expand(-1, -1, self.prev_frame_coords.size(-1)))
+
+        # print(cp_2t1)
+        T = compute_rigid_transform(cp_1t2, cp_2t1)
 
 
-        src_cp, tgt_cp, src_overlap, tgt_overlap = self.regressor(attention_features[0], attention_features[1])
-
-        src_features = torch.cat((self.prev_frame_coords, tgt_cp), dim=1)
-        tgt_features = torch.cat((curr_frame_coords, src_cp), dim=1)
-        overlap = torch.cat((src_overlap, tgt_overlap), dim=1)
-
-        T = compute_rigid_transform(src_features.squeeze(), tgt_features.squeeze(), overlap.squeeze()).unsqueeze(0)
+        # src_cp, tgt_cp, src_overlap, tgt_overlap = self.regressor(attention_features[0], attention_features[1])
+        #
+        # src_features = torch.cat((self.prev_frame_coords, tgt_cp), dim=1)
+        # tgt_features = torch.cat((curr_frame_coords, src_cp), dim=1)
+        # overlap = torch.cat((src_overlap, tgt_overlap), dim=1)
+        #
+        # T = compute_rigid_transform(src_features.squeeze(), tgt_features.squeeze(), overlap.squeeze()).unsqueeze(0)
 
         self.prev_frame_encoding = curr_frame_encoding.detach()
         self.prev_frame_coords = curr_frame_coords.detach()

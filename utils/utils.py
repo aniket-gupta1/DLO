@@ -2,6 +2,7 @@ from lietorch import SE3
 from scipy.spatial.transform import Rotation
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
 
 def mat_to_quat(mat):
     quat = Rotation.from_matrix(mat[:,:3,:3]).as_quat()
@@ -9,6 +10,27 @@ def mat_to_quat(mat):
     pose = np.concatenate((t, quat), axis=-1)
 
     return pose
+
+
+def plot_poses_realtime(poses, poses_gt, plot_gt=True):
+    poses_gt = np.array(poses_gt)
+    poses = np.array(poses)
+
+    plt.cla()
+    if plot_gt:
+        plt.plot(poses_gt[:, 0], poses_gt[:, 1], label="Ground Truth")
+
+    plt.plot(poses[:, 0], poses[:, 1], label="Estimated trajectory")
+    # plt.xlim([-100,100])
+    # plt.ylim([0,200])
+    plt.legend()
+    plt.title("Estimated Trajectory using VO")
+    plt.xlabel("metres")
+    plt.ylabel("metres")
+    plt.grid()
+    # plt.axis('equal')
+    plt.pause(0.001)
+
 
 def compute_rigid_transform(a: torch.Tensor, b: torch.Tensor, weights: torch.Tensor = None):
     """Compute rigid transforms between two point sets
