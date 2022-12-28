@@ -30,8 +30,6 @@ class DLO_net_single(nn.Module):
 
         self.cross_attention = Cross_Attention_Model(cfg, device)
 
-        # self.matcher = Feature_matcher(cfg)
-
         self.device = device
 
         self.prev_frame_encoding = None
@@ -55,15 +53,6 @@ class DLO_net_single(nn.Module):
         # print(cp_2t1)
         T = compute_rigid_transform(cp_1t2, cp_2t1)
 
-
-        # src_cp, tgt_cp, src_overlap, tgt_overlap = self.regressor(attention_features[0], attention_features[1])
-        #
-        # src_features = torch.cat((self.prev_frame_coords, tgt_cp), dim=1)
-        # tgt_features = torch.cat((curr_frame_coords, src_cp), dim=1)
-        # overlap = torch.cat((src_overlap, tgt_overlap), dim=1)
-        #
-        # T = compute_rigid_transform(src_features.squeeze(), tgt_features.squeeze(), overlap.squeeze()).unsqueeze(0)
-
         self.prev_frame_encoding = curr_frame_encoding.detach()
         self.prev_frame_coords = curr_frame_coords.detach()
         return T
@@ -78,9 +67,10 @@ class DLO_net_single(nn.Module):
 if __name__=="__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     # cfg = Config(512)
-    a = torch.randn(2, 10, 3)
-    b = torch.randn(2, 10, 3)
+    a = torch.randn(2, 10, 3).cuda()
+    b = torch.randn(2, 10, 3).cuda()
     c = softmax_correlation(a,b)
+    print(c.shape)
 
 
 

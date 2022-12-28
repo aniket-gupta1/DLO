@@ -52,3 +52,30 @@ class Config(object):
         # Eval
         self.eval_time = 1
 
+        # KPConv options
+        self.num_layers = 2
+        self.neighborhood_limits = [50, 50]
+        self.aggregation_mode = "sum"
+        self.first_subsampling_dl = 0.03  # Set smaller to have a higher resolution
+        self.first_feats_dim = 512
+        self.fixed_kernel_points = "center"
+        self.in_feats_dim = 1
+        self.in_points_dim = 3
+        self.conv_radius = 2.75
+        self.deform_radius = 5.0
+        self.KP_extent = 2.0
+        self.KP_influence = "linear"
+        self.overlap_radius = 0.04
+        self.use_batch_norm = True
+        self.batch_norm_momentum = 0.02
+        self.modulated = False
+        self.num_kernel_points = 15
+        self.architecture = ['simple',
+                       'resnetb',
+                       'resnetb',
+                       'resnetb_strided',
+                       'resnetb',
+                       'resnetb', ]
+
+
+

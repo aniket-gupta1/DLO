@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch_points_kernels import knn
+import open3d as o3d
 
 # def knn_search(support_pts, query_pts, k):
 #     """KNN search.
@@ -219,13 +220,14 @@ class RandLANet(nn.Module):
             # print("x after lfa: ", x.size())
 
             decimation_ratio *= d
-            if i==len(self.encoder)-1:
-                x = x[:,:,:self.num_features]
-            else:
-                x = x[:,:,:N//decimation_ratio]
+            # if i==len(self.encoder)-1:
+            #     x = x[:,:,:self.num_features]
+            # else:
+            x = x[:,:,:N//decimation_ratio]
             # print("x after decimation: ", x.size())
 
-        sampled_coords = coords[:,:self.num_features].to(self.device)
+        # sampled_coords = coords[:,:self.num_features].to(self.device)
+        sampled_coords = coords[:,:N//decimation_ratio].to(self.device)
         # print(sampled_coords.size())
 
         y = self.mlp(x).transpose(1,2).squeeze(3)
@@ -236,7 +238,7 @@ class RandLANet(nn.Module):
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    d_in = 4
+    d_in = 3
     cloud = 1000*torch.randn(1, 2**17, d_in).to(device)
     print(cloud.size())
     model = RandLANet(d_in, 16, 4, 500, device)
@@ -244,3 +246,13 @@ if __name__ == '__main__':
 
     pred, coords = model(cloud)
     print(pred.size())
+
+    print(cloud.cpu().numpy().shape)
+    print(pred.detach().cpu().numpy().shape)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(cloud.cpu().numpy().squeeze())
+
+    pcd2 = o3d.geometry.PointCloud()
+    pcd2.points = o3d.utility.Vector3dVector(coords.cpu().numpy().squeeze())
+    o3d.visualization.draw_geometries([pcd])
+    o3d.visualization.draw_geometries([pcd2])
