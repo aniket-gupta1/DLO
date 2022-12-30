@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from datasets.kitti import kitti
+from datasets import modelnet
 from torch.utils.tensorboard import SummaryWriter
 import time
 from models.kp_qk_model import DLO_net_single
@@ -8,33 +8,6 @@ from config.config import Config
 from utils.utils import *
 import os
 import open3d as o3d
-
-
-def check_correctness(prev, curr):
-    print(curr['pose'])
-    T = curr['pose'].cpu().numpy().reshape(4,4).astype(np.float32)
-    # T = curr['pose'].cpu().numpy().squeeze().astype(np.float32)
-    pc1 = prev['pointcloud'].cpu().numpy().squeeze().astype(np.float32)
-    pc2 = curr['pointcloud'].cpu().numpy().squeeze().astype(np.float32)
-
-    print(type(pc1))
-    print(pc1.shape)
-    print(pc2.shape)
-    print(T[:3,3])
-    # pts =  T[:3,:3] @ pc2.T + np.expand_dims(T[:3, 3], -1)
-    pts =  T[:3,:3] @ pc2.T + np.array([[T[2,3]], [-T[0,3]], [T[1,3]]])
-    print(type(pts))
-    print(pts.shape)
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pts.T)
-
-    pcd1 = o3d.geometry.PointCloud()
-    pcd1.points = o3d.utility.Vector3dVector(pc1)
-
-    o3d.visualization.draw_geometries([pcd])
-
-    return False
-
 
 def loss_fn(pred, gt, pc):
     pc = pc.squeeze().transpose(1,0).cuda()
@@ -49,9 +22,8 @@ def loss_fn(pred, gt, pc):
     return loss
 
 def train(cfg, device, writer):
-    dataset = kitti(cfg, mode = "training", inbetween_poses = cfg.inbetween_poses,
-                    form_transformation = cfg.form_transformation)
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataset = modelnet.get_train_datasets(cfg)[0]
+    dataloader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=4, collate_fn=modelnet.collate_pair)
 
     model = DLO_net_single(cfg, device).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay,
@@ -63,35 +35,27 @@ def train(cfg, device, writer):
     step=0
     for epoch in range(cfg.num_epochs):
         tic = time.time()
-        # loss = train_epoch(net, optimizer, dataloader, loss_fn, writer)
 
         model.train()
 
         losses = 0
 
         for index, data in enumerate(dataloader):
+            data = all_to_device(data, device)
             tic2 = time.time()
 
+            optimizer.zero_grad()
+            gt = data['pose']
+            T = model(data)
 
-            if data['frame_num'] == 0:
-                # prev_data = data
-                T = model(data)
-            else:
-                # if not check_correctness(data, data):
-                #     raise ValueError
-                optimizer.zero_grad()
-                gt = data['pose']
-                # T = model(prev_data, data)
-                T = model(data)
+            loss = loss_fn(T, gt, data['pointcloud'])
+            loss.backward(retain_graph=False)
+            optimizer.step()
 
-                loss = loss_fn(T, gt, data['pointcloud'])
-                loss.backward(retain_graph=False)
-                optimizer.step()
-
-                losses += loss.item()
-                step+=1
-                writer.add_scalar("Batch Loss/train", loss, step)
-                print(f"Batch_index: {index} || Loss: {loss}")
+            losses += loss.item()
+            step+=1
+            writer.add_scalar("Batch Loss/train", loss, step)
+            print(f"Batch_index: {index} || Loss: {loss}")
 
             print("Time: ", time.time()-tic2)
 

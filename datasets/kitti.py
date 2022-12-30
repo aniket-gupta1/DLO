@@ -121,7 +121,7 @@ class kitti(Dataset):
             data['pointcloud'] = torch.from_numpy(self._pcread(pc_path))
         data['seq'] = seq
         data['frame_num'] = int(pc_path[-10:-4])
-
+        data['true_pose'] = np.reshape(pose, (4,4))
 
 
         if self.form_transformation and self.inbetween_poses:

@@ -220,14 +220,14 @@ class RandLANet(nn.Module):
             # print("x after lfa: ", x.size())
 
             decimation_ratio *= d
-            # if i==len(self.encoder)-1:
-            #     x = x[:,:,:self.num_features]
-            # else:
-            x = x[:,:,:N//decimation_ratio]
+            if i==len(self.encoder)-1:
+                x = x[:,:,:self.num_features]
+            else:
+                x = x[:,:,:N//decimation_ratio]
             # print("x after decimation: ", x.size())
 
-        # sampled_coords = coords[:,:self.num_features].to(self.device)
-        sampled_coords = coords[:,:N//decimation_ratio].to(self.device)
+        sampled_coords = coords[:,:self.num_features].to(self.device)
+        # sampled_coords = coords[:,:N//decimation_ratio].to(self.device)
         # print(sampled_coords.size())
 
         y = self.mlp(x).transpose(1,2).squeeze(3)

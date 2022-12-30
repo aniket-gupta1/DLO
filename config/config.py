@@ -77,5 +77,21 @@ class Config(object):
                        'resnetb',
                        'resnetb', ]
 
-
+        # Modelnet dataset
+        # self.dataset = "modelnet"
+        # self.root = "/home/ngc/SemSeg/OSC/RegTR/data/modelnet40_ply_hdf5_2048"
+        # self.train_categoryfile = "/home/ngc/SemSeg/OSC/RegTR/src/datasets/modelnet/modelnet40_half1.txt"
+        # self.val_categoryfile = "/home/ngc/SemSeg/OSC/RegTR/src/datasets/modelnet/modelnet40_half1.txt"
+        # self.test_categoryfile = "/home/ngc/SemSeg/OSC/RegTR/src/datasets/modelnet/modelnet40_half2.txt"
+        # self.augment_noise = 0.005
+        # self.perturb_pose = "small"
+        # self.train_batch_size = 4
+        # self.val_batch_size = 4
+        # self.test_batch_size = 1
+        # self.overlap_radius = 0.0375  # Distance below which points will be considered to be overlapping
+        # self.partial = [0.7, 0.7]  # Cropping ratio for training. Will be ignored during benchmarking
+        # self.num_points = 1024
+        # self.noise_type = "crop"
+        # self.rot_mag = 45.0
+        # self.trans_mag = 0.5
 

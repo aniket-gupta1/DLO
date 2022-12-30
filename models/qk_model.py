@@ -8,17 +8,21 @@ import time
 from utils.utils import compute_rigid_transform
 import numpy as np
 from config.config import Config
-
+import matplotlib.pyplot as plt
 def softmax_correlation(feat0:torch.Tensor, feat1:torch.Tensor):
     b, n, d = feat0.shape
 
     correlation = torch.matmul(feat0, feat1.permute(0,2,1))/(d**0.5) #[B, N, N]
     prob = torch.nn.functional.softmax(correlation, dim=-1) #[B, N, N]
-    init_grid = torch.arange(n).float().cuda().requires_grad_() #[B, N]
 
-    correspondence = torch.matmul(prob, init_grid) #[B, N]
+    # plt.imshow(prob.squeeze().detach().cpu().numpy())
+    # plt.show()
+    val, ind = torch.max(prob, dim=-1) #[B,N]
+    # init_grid = torch.arange(n).float().cuda().requires_grad_() #[B, N]
+    #
+    # correspondence = torch.matmul(prob, init_grid) #[B, N]
 
-    return correspondence
+    return val, ind
 
 class DLO_net_single(nn.Module):
     def __init__(self, cfg, device):
@@ -44,14 +48,16 @@ class DLO_net_single(nn.Module):
 
         attention_features = self.cross_attention(self.prev_frame_encoding, curr_frame_encoding)
         # print(attention_features)
-        cp_ind_1t2 = softmax_correlation(attention_features[0], attention_features[1]).long()
-        cp_1t2 = torch.gather(curr_frame_coords, 1, cp_ind_1t2.unsqueeze(-1).expand(-1, -1, curr_frame_coords.size(-1)))
-
-        cp_ind_2t1 = softmax_correlation(attention_features[1], attention_features[0]).long()
-        cp_2t1 = torch.gather(self.prev_frame_coords, 1, cp_ind_2t1.unsqueeze(-1).expand(-1, -1, self.prev_frame_coords.size(-1)))
-
+        # cp_ind_1t2 = softmax_correlation(attention_features[0], attention_features[1]).long()
+        # cp_1t2 = torch.gather(curr_frame_coords, 1, cp_ind_1t2.unsqueeze(-1).expand(-1, -1, curr_frame_coords.size(-1)))
+        #
+        # cp_ind_2t1 = softmax_correlation(attention_features[1], attention_features[0]).long()
+        # cp_2t1 = torch.gather(self.prev_frame_coords, 1, cp_ind_2t1.unsqueeze(-1).expand(-1, -1, self.prev_frame_coords.size(-1)))
+        val, ind = softmax_correlation(attention_features[0], attention_features[1])
+        cp_1t2 = self.prev_frame_coords
+        cp_2t1 = torch.gather(curr_frame_coords, 1, ind.unsqueeze(-1).expand(-1, -1, 3))
         # print(cp_2t1)
-        T = compute_rigid_transform(cp_1t2, cp_2t1)
+        T = compute_rigid_transform(cp_1t2, cp_2t1, val)
 
         self.prev_frame_encoding = curr_frame_encoding.detach()
         self.prev_frame_coords = curr_frame_coords.detach()
