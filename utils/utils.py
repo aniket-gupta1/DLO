@@ -24,7 +24,7 @@ def pad_sequence(sequences, require_padding_mask=False, require_lens=False,
     if require_padding_mask:
         B = len(sequences)
         seq_lens = list(map(len, sequences))
-        padding_mask = torch.zeros((B, padded.shape[0]), dtype=torch.bool, device=padded.device)
+        padding_mask = torch.zeros((B, padded.shape[1]), dtype=torch.bool, device=padded.device)
         for i, l in enumerate(seq_lens):
             padding_mask[i, l:] = True
 

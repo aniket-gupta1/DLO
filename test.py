@@ -30,7 +30,51 @@ class config():
                        'resnetb',
                        'resnetb', ]
 
+
+def softmax_correlation(feat0: torch.Tensor, feat1: torch.Tensor, pts0: torch.Tensor, pts1: torch.Tensor):
+    b, n, d = feat0.shape
+    _, m, _ = feat1.shape
+
+    print(b, n, d, m)
+
+    if n >= m:
+        correlation = torch.matmul(feat0, feat1.permute(0, 2, 1)) / (d ** 0.5)  # [B, N, M]
+        prob = torch.nn.functional.softmax(correlation, dim=-1)  # [B, N, M]
+
+        val, ind = torch.max(prob, dim=1)  # [B,M]
+
+        # pts0 -> [B, N, 3] ; pts1 -> [B, M, 3]
+        # val -> [B,M] ; ind -> [B,M]
+        src_pts = torch.gather(pts0, 1, ind.unsqueeze(-1).expand(-1, -1, 3)) # [B, N, 3] -> [B, M, 3]
+        print("src_pts shape: ", src_pts.shape)
+        tgt_pts = pts1
+        print("tgt_pts.shape", tgt_pts.shape)
+
+        # init_grid = torch.arange(m).float().cuda().requires_grad_()  # [B, N]
+        raise ValueError
+
+    else:
+        correlation = torch.matmul(feat1, feat0.permute(0, 2, 1)) / (d ** 0.5)  # [B, M, N]
+        print(correlation.shape)
+        prob = torch.nn.functional.softmax(correlation, dim=-1)  # [B, M, N]
+        print(prob.shape)
+        init_grid = torch.arange(n).float().cuda().requires_grad_()  # [B, N]
+
+    correspondence = torch.matmul(prob, init_grid)  # [B, N]
+
+    return correspondence
+
 if __name__=="__main__":
+    a = torch.randn(2, 5, 3)
+    b = torch.randn(2, 4, 3)
+    a_f = torch.randn(2,5,6)
+    b_f = torch.randn(2,4,6)
+    print("src: ", a)
+    print("tgt: ", b)
+    print("src_feat:", a_f)
+    print("tgt_feat:", b_f)
+    softmax_correlation(a_f, b_f, a, b)
+
     # cfg = config()
     #
     # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -47,26 +91,26 @@ if __name__=="__main__":
 
     # Make up some points in the valid range
 
-    pts = np.fromfile("/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset/sequences/00/velodyne/000000.bin",
-                      dtype=np.float32).reshape((-1, 4))[:, 0:3]
-    print(pts.shape)
-
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pts)
-    # o3d.visualization.draw_geometries([pcd])
-
-    v = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=0.05)
-
-    # o3d.visualization.draw_geometries([v])
-    tic = time.time()
-    # d = {}
-    for i in range(pts.shape[0]):
-
-        v.get_voxel(pts[i, :])
-        # d[tuple(pts[i,:])] = v.get_voxel(pts[i, :])
-        #print("Voxel index: ", v.get_voxel(pts[0,:]))
-
-    # print(len(d.keys()))
-    # len(v.get_voxels())
-    print(time.time()-tic)
+    # pts = np.fromfile("/home/ngc/SemSeg/Datasets/SemanticKITTI/dataset/sequences/00/velodyne/000000.bin",
+    #                   dtype=np.float32).reshape((-1, 4))[:, 0:3]
+    # print(pts.shape)
+    #
+    #
+    # pcd = o3d.geometry.PointCloud()
+    # pcd.points = o3d.utility.Vector3dVector(pts)
+    # # o3d.visualization.draw_geometries([pcd])
+    #
+    # v = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=0.05)
+    #
+    # # o3d.visualization.draw_geometries([v])
+    # tic = time.time()
+    # # d = {}
+    # for i in range(pts.shape[0]):
+    #
+    #     v.get_voxel(pts[i, :])
+    #     # d[tuple(pts[i,:])] = v.get_voxel(pts[i, :])
+    #     #print("Voxel index: ", v.get_voxel(pts[0,:]))
+    #
+    # # print(len(d.keys()))
+    # # len(v.get_voxels())
+    # print(time.time()-tic)

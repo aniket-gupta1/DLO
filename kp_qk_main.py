@@ -48,7 +48,7 @@ def train(cfg, device, writer):
             gt = data['pose']
             T = model(data)
 
-            loss = loss_fn(T, gt, data['pointcloud'])
+            loss = loss_fn(T, gt, data['tgt_xyz'])
             loss.backward(retain_graph=False)
             optimizer.step()
 
@@ -82,6 +82,6 @@ if __name__=="__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     writer = SummaryWriter()
 
-    cfg = Config(512)
+    cfg = Config(512, modelnet=True)
     train(cfg, device, writer)
     writer.close()

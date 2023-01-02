@@ -7,40 +7,36 @@ from utils.utils import compute_rigid_transform, pad_sequence
 import numpy as np
 from models.backbone.backbone_kpconv.kpconv import KPFEncoder, PreprocessorGPU, compute_overlaps
 
-def softmax_correlation(feat0:torch.Tensor, feat1:torch.Tensor, pts0, pts1):
+def softmax_correlation(feat0:torch.Tensor, feat1:torch.Tensor, pts0: torch.Tensor, pts1: torch.Tensor):
     b, n, d = feat0.shape
     _, m, _ = feat1.shape
 
     print(b, n, d, m)
 
+    correlation = torch.matmul(feat0, feat1.permute(0, 2, 1)) / (d ** 0.5)  # [B, N, M]
+    prob = torch.nn.functional.softmax(correlation, dim=-1)  # [B, N, M]
+
     if n>m:
-        correlation = torch.matmul(feat0, feat1.permute(0,2,1))/(d**0.5) #[B, N, M]
-        print(correlation.shape)
-        prob = torch.nn.functional.softmax(correlation, dim=-1) #[B, N, M]
-        print(prob.shape)
-        val_max, ind_max = torch.max(prob, dim=-1)
-        val_m, ind_m = torch.topk(val_max, m)
-        print(f"val shape: {val_m.shape}")
-        print(f"ind shape: {ind_m.shape}")
-
-        cp_pts0 = []
-        for i, pts in enumerate(pts0):
-            cp_pts0.append(torch.gather(pts, 1, ind_m))
-
-
-
-        init_grid = torch.arange(m).float().cuda().requires_grad_() #[B, N]
+        val, ind = torch.max(prob, dim=1)  # [B,M]
+        # pts0 -> [B, N, 3] ; pts1 -> [B, M, 3]
+        # val -> [B,M] ; ind -> [B,M]
+        src_pts = torch.gather(pts0, 1, ind.unsqueeze(-1).expand(-1, -1, 3))  # [B, N, 3] -> [B, M, 3]
+        print("src_pts shape: ", src_pts.shape)
+        tgt_pts = pts1
+        print("tgt_pts.shape", tgt_pts.shape)
+        T = compute_rigid_transform(src_pts, tgt_pts, weights=val)
 
     else:
-        correlation = torch.matmul(feat1, feat0.permute(0, 2, 1)) / (d ** 0.5) # [B, M, N]
-        print(correlation.shape)
-        prob = torch.nn.functional.softmax(correlation, dim=-1)  # [B, M, N]
-        print(prob.shape)
-        init_grid = torch.arange(n).float().cuda().requires_grad_()  # [B, N]
+        val, ind = torch.max(prob, dim=2)  # [B,N]
+        # pts0 -> [B, N, 3] ; pts1 -> [B, M, 3]
+        # val -> [B,N] ; ind -> [B,N]
+        tgt_pts = torch.gather(pts1, 1, ind.unsqueeze(-1).expand(-1, -1, 3))  # [B, M, 3] -> [B, N, 3]
+        print("src_pts shape: ", tgt_pts.shape)
+        src_pts = pts0
+        print("tgt_pts.shape", tgt_pts.shape)
+        T = compute_rigid_transform(src_pts, tgt_pts, weights=val)
 
-    correspondence = torch.matmul(prob, init_grid) #[B, N]
-
-    return correspondence
+    return T
 
 def split_src_tgt(feats, stack_lengths, dim=0):
     if isinstance(stack_lengths, torch.Tensor):
@@ -94,25 +90,29 @@ class DLO_net_single(nn.Module):
         print(f"curr coords 1: {curr_frame_coords[0].shape}")
         print(f"curr coords 2: {curr_frame_coords[1].shape}")
 
-        prev_frame_encoding, _, _ = pad_sequence(prev_frame_encoding, require_padding_mask=False, batch_first=True)
-        curr_frame_encoding, _, _ = pad_sequence(curr_frame_encoding, require_padding_mask=False, batch_first=True)
+        prev_frame_encoding, prev_frame_encoding_mask, _ = pad_sequence(prev_frame_encoding, require_padding_mask=True, batch_first=True)
+        curr_frame_encoding, curr_frame_encoding_mask, _ = pad_sequence(curr_frame_encoding, require_padding_mask=True, batch_first=True)
+
+        padded_prev_coords = torch.nn.utils.rnn.pad_sequence(prev_frame_coords, batch_first=True)
+        padded_curr_coords = torch.nn.utils.rnn.pad_sequence(curr_frame_coords, batch_first=True)
 
         print(f"prev_enc: {prev_frame_encoding.shape}")
         print(f"curr_enc: {curr_frame_encoding.shape}")
 
-        attention_features = self.cross_attention(prev_frame_encoding, curr_frame_encoding)
+        print(f"prev_enc_mask: {prev_frame_encoding_mask.shape}")
+        print(f"curr_enc_mask: {curr_frame_encoding_mask.shape}")
+
+        print(f"prev_pad_coords: {padded_prev_coords.shape}")
+        print(f"curr_pad_coords: {padded_curr_coords.shape}")
+
+        attention_features = self.cross_attention(prev_frame_encoding, curr_frame_encoding,
+                                                  prev_frame_encoding_mask, curr_frame_encoding_mask)
 
         print(f"attention features 1: {attention_features[0].shape}")
         print(f"attention features 2: {attention_features[1].shape}")
 
-        cp_ind_1t2 = softmax_correlation(attention_features[0], attention_features[1], prev_frame_coords, curr_frame_coords).long()
-        cp_1t2 = torch.gather(curr_frame_coords, 1, cp_ind_1t2.unsqueeze(-1).expand(-1, -1, curr_frame_coords.size(-1)))
-
-        # cp_ind_2t1 = softmax_correlation(attention_features[1], attention_features[0]).long()
-        # cp_2t1 = torch.gather(prev_frame_coords, 1, cp_ind_2t1.unsqueeze(-1).expand(-1, -1, self.prev_frame_coords.size(-1)))
-
-        T = compute_rigid_transform(cp_1t2, cp_2t1)
-
+        T = softmax_correlation(attention_features[0], attention_features[1], padded_prev_coords, padded_curr_coords)
+        print("calculated T: ", T)
         return T
 
     def save(self, path):

@@ -130,6 +130,10 @@ class MHA(nn.Module):
                                        key_reshaped.transpose(1, 2).transpose(2, 3)) / math.sqrt(C)
 
         if mask is not None:
+            print("="*80)
+            print(dot_prod_scores.shape)
+            print(mask.shape)
+            print("-"*80)
             dot_prod_scores = dot_prod_scores.masked_fill(mask == 0, -1e9)
 
         attention_scores = F.softmax(dot_prod_scores, dim=-1)
@@ -158,8 +162,10 @@ class FFN(nn.Module):
 class Cross_EncoderCell(nn.Module):
     def __init__(self, input_dim_Q:int, input_dim_K:int, input_dim_V:int, num_heads:int, ff_dim:int, dropout:float):
         super(Cross_EncoderCell, self).__init__()
-        self.self_attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
-        self.cross_attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+        # self.self_attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+        # self.cross_attn = MHA(input_dim_Q, input_dim_K, input_dim_V, num_heads)
+        self.self_attn = nn.MultiheadAttention(input_dim_Q, num_heads, dropout=dropout, batch_first=True)
+        self.cross_attn = nn.MultiheadAttention(input_dim_Q, num_heads, dropout=dropout, batch_first=True)
 
         self.dropout1 = nn.Dropout(dropout)
         self.layer_norm1 = nn.LayerNorm(input_dim_V)
@@ -173,20 +179,20 @@ class Cross_EncoderCell(nn.Module):
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask:torch.Tensor=None, tgt_mask:torch.Tensor=None):
         # Apply Self-Attention to each pointcloud embedding
-        src_attn = self.self_attn(src, src, src, src_mask)
+        src_attn, src_attn_wts = self.self_attn(src, src, src, key_padding_mask=src_mask)
         src_attn = self.dropout1(src_attn)
         src_attn = self.layer_norm1(src_attn+src)
 
-        tgt_attn = self.self_attn(tgt, tgt, tgt, tgt_mask)
+        tgt_attn, tgt_attn_wts = self.self_attn(tgt, tgt, tgt, key_padding_mask=tgt_mask)
         tgt_attn = self.dropout1(tgt_attn)
         tgt_attn = self.layer_norm1(tgt_attn+tgt)
 
         # Apply Cross Attention
-        cross_src_attn = self.cross_attn(query=src_attn, key=tgt_attn, value=tgt_attn, mask=tgt_mask)
+        cross_src_attn, src_cross_attn_wts = self.cross_attn(query=src_attn, key=tgt_attn, value=tgt_attn, key_padding_mask=tgt_mask)
         cross_src_attn = self.dropout2(cross_src_attn)
         cross_src_attn = self.layer_norm2(cross_src_attn + src_attn)
 
-        cross_tgt_attn = self.cross_attn(query=tgt_attn, key=src_attn, value=src_attn, mask=src_mask)
+        cross_tgt_attn, tgt_cross_attn_wts = self.cross_attn(query=tgt_attn, key=src_attn, value=src_attn, key_padding_mask=src_mask)
         cross_tgt_attn = self.dropout2(cross_tgt_attn)
         cross_tgt_attn = self.layer_norm2(cross_tgt_attn + tgt_attn)
 
